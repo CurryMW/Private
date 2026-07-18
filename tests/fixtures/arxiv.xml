@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>arXiv Query Results</title>
+  <id>https://arxiv.org/api/query</id>
+  <updated>2026-07-18T00:00:00Z</updated>
+  <entry>
+    <id>http://arxiv.org/abs/2607.12345v1</id>
+    <updated>2026-07-17T22:45:00Z</updated>
+    <published>2026-07-17T22:45:00Z</published>
+    <title>
+      A New Agent Reasoning Method
+    </title>
+    <summary><![CDATA[We introduce <b>agent reasoning</b> with stronger evaluation.]]></summary>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2607.00001v1</id>
+    <updated>2026-07-15T08:00:00Z</updated>
+    <published>2026-07-15T08:00:00Z</published>
+    <title>An old paper</title>
+    <summary>This item falls outside the collection window.</summary>
+  </entry>
+</feed>

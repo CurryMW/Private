@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=75,<82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dingtalk-ai-daily"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "feedparser>=6.0.12,<7",
+  "httpx>=0.28.1,<1",
+  "huggingface-hub>=1.23,<2",
+  "pydantic>=2.13.4,<3",
+  "python-dotenv>=1.1,<2",
+  "PyYAML>=6.0,<7",
+  "tzdata>=2025.2,<2027",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4,<10", "pytest-asyncio>=1.0,<2", "respx>=0.22,<1"]
+
+[project.scripts]
+ai-daily = "ai_daily.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+asyncio_mode = "auto"
+testpaths = ["tests"]

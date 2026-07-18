@@ -1,0 +1,26 @@
+rss:
+  - name: OpenAI
+    url: https://openai.com/news/rss.xml
+  - name: Google DeepMind
+    url: https://deepmind.google/blog/rss.xml
+  - name: Microsoft Research
+    url: https://www.microsoft.com/en-us/research/feed/
+  - name: NVIDIA Developer Blog
+    url: https://developer.nvidia.com/blog/feed/
+  - name: Hugging Face Blog
+    url: https://huggingface.co/blog/feed.xml
+arxiv:
+  categories: [cs.AI, cs.LG, cs.CL, cs.CV]
+  max_results: 40
+huggingface_daily_papers:
+  enabled: true
+  limit_per_day: 20
+github_repositories:
+  - huggingface/transformers
+  - vllm-project/vllm
+  - ggml-org/llama.cpp
+  - langchain-ai/langchain
+  - modelcontextprotocol/python-sdk
+  - microsoft/semantic-kernel
+  - crewAIInc/crewAI
+  - langgenius/dify

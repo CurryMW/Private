@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example AI Feed</title>
+    <link>https://news.example.com/</link>
+    <description>Official AI updates</description>
+    <item>
+      <title> New inference &amp; training system </title>
+      <link>https://news.example.com/recent</link>
+      <description><![CDATA[<p>A <strong>faster</strong> inference system.</p>]]></description>
+      <pubDate>Fri, 17 Jul 2026 23:30:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Old model update</title>
+      <link>https://news.example.com/old</link>
+      <description>An older model release.</description>
+      <pubDate>Wed, 15 Jul 2026 20:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

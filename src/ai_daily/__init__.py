@@ -1,0 +1,1 @@
+"""DingTalk AI daily digest."""
