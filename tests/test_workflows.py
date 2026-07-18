@@ -93,8 +93,10 @@ def test_daily_workflow_has_schedule_and_safe_manual_default() -> None:
     workflow = _load_workflow("daily.yml")
     triggers = workflow["on"]
 
+    assert workflow["name"] == "钉钉 AI 技术日报"
     assert triggers["schedule"] == [{"cron": "30 0 * * *"}]
     dry_run = triggers["workflow_dispatch"]["inputs"]["dry_run"]
+    assert dry_run["description"] == "只预览，不发送钉钉消息，也不保存状态"
     assert dry_run["type"] == "boolean"
     assert dry_run["default"] is True
 

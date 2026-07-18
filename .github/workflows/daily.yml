@@ -1,4 +1,4 @@
-name: Daily DingTalk Digest
+name: 钉钉 AI 技术日报
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Print a preview without sending or saving state
+        description: 只预览，不发送钉钉消息，也不保存状态
         required: false
         type: boolean
         default: true
