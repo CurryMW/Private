@@ -54,7 +54,7 @@ class Analyzer:
                 {"role": "user", "content": _user_message(candidates)},
             ],
             "temperature": 0.2,
-            "max_tokens": 6000,
+            "max_tokens": 3000,
         }
         headers = {
             "Authorization": (
@@ -68,20 +68,35 @@ class Analyzer:
                     endpoint,
                     json=payload,
                     headers=headers,
-                    timeout=60,
+                    timeout=180,
                 )
-            except (httpx.TimeoutException, httpx.ConnectError):
+            except httpx.TimeoutException:
                 if attempt == 2:
                     raise AnalysisError(
-                        "AI analysis request failed after 3 attempts"
+                        "AI analysis timed out after 3 attempts"
+                    ) from None
+                await asyncio.sleep(attempt + 1)
+                continue
+            except httpx.ConnectError:
+                if attempt == 2:
+                    raise AnalysisError(
+                        "AI analysis connection failed after 3 attempts"
                     ) from None
                 await asyncio.sleep(attempt + 1)
                 continue
 
-            if response.status_code == 429 or 500 <= response.status_code < 600:
+            if response.status_code == 429:
                 if attempt == 2:
                     raise AnalysisError(
-                        "AI analysis request failed after 3 attempts"
+                        "AI analysis rate limited after 3 attempts"
+                    )
+                await asyncio.sleep(attempt + 1)
+                continue
+            if 500 <= response.status_code < 600:
+                if attempt == 2:
+                    raise AnalysisError(
+                        "AI analysis service failed with "
+                        f"HTTP {response.status_code} after 3 attempts"
                     )
                 await asyncio.sleep(attempt + 1)
                 continue

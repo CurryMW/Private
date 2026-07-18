@@ -105,7 +105,7 @@ async def test_analyze_sends_chinese_openai_compatible_request_and_returns_diges
     body = json.loads(request.content)
     assert body["model"] == "claude-sonnet-4-6"
     assert body["temperature"] == 0.2
-    assert body["max_tokens"] == 6000
+    assert body["max_tokens"] == 3000
     assert body["messages"][0]["role"] == "system"
     assert "你是严谨的 AI 技术编辑" in body["messages"][0]["content"]
     assert body["messages"][1]["role"] == "user"
@@ -115,7 +115,7 @@ async def test_analyze_sends_chinese_openai_compatible_request_and_returns_diges
     assert '"source_kind"' not in user_message
     assert '"properties"' in user_message
     assert request.headers["Authorization"] == "Bearer sk-test"
-    assert request.extensions["timeout"]["read"] == 60.0
+    assert request.extensions["timeout"]["read"] == 180.0
 
 
 @pytest.mark.asyncio
@@ -326,6 +326,72 @@ async def test_analyze_stops_after_three_transient_attempts(
 
     assert route.call_count == 3
     assert sleeps == [1, 2]
+    assert "HTTP 503" in str(captured.value)
+    assert "private response body" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(
+    ("exception_type", "expected_message"),
+    [
+        (httpx.ReadTimeout, "timed out after 3 attempts"),
+        (httpx.ConnectError, "connection failed after 3 attempts"),
+    ],
+)
+async def test_analyze_classifies_terminal_transport_error_without_details(
+    exception_type,
+    expected_message: str,
+    settings: Settings,
+    candidates: list[Candidate],
+    monkeypatch,
+) -> None:
+    sleeps: list[int] = []
+
+    async def fake_sleep(delay: int) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr("ai_daily.analyzer.asyncio.sleep", fake_sleep)
+    request = httpx.Request("POST", ENDPOINT)
+    route = respx.post(ENDPOINT).mock(
+        side_effect=[
+            exception_type("private upstream detail", request=request)
+            for _ in range(3)
+        ]
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(AnalysisError) as captured:
+            await Analyzer(client, settings).analyze(candidates)
+
+    assert route.call_count == 3
+    assert sleeps == [1, 2]
+    assert expected_message in str(captured.value)
+    assert "private upstream detail" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_analyze_classifies_terminal_rate_limit(
+    settings: Settings, candidates: list[Candidate], monkeypatch
+) -> None:
+    sleeps: list[int] = []
+
+    async def fake_sleep(delay: int) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr("ai_daily.analyzer.asyncio.sleep", fake_sleep)
+    route = respx.post(ENDPOINT).mock(
+        side_effect=[httpx.Response(429, text="private response body") for _ in range(3)]
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(AnalysisError) as captured:
+            await Analyzer(client, settings).analyze(candidates)
+
+    assert route.call_count == 3
+    assert sleeps == [1, 2]
+    assert "rate limited after 3 attempts" in str(captured.value)
     assert "private response body" not in str(captured.value)
 
 
