@@ -82,6 +82,8 @@ class Settings(BaseModel):
     timezone: str = "Asia/Shanghai"
     dry_run: bool = False
     state_path: Path = Path(".state/sent.json")
+    delivery_state_path: Path = Path(".state/deliveries.json")
+    enforce_daily_once: bool = False
     github_token: SecretStr | None = None
 
     @field_validator("ai_api_key", "dingtalk_webhook")
@@ -142,5 +144,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         timezone=source.get("TIMEZONE", "Asia/Shanghai"),
         dry_run=_parse_bool(source.get("DRY_RUN")),
         state_path=source.get("STATE_PATH", ".state/sent.json"),
+        delivery_state_path=source.get(
+            "DELIVERY_STATE_PATH", ".state/deliveries.json"
+        ),
+        enforce_daily_once=_parse_bool(source.get("ENFORCE_DAILY_ONCE")),
         github_token=_optional(source, "GITHUB_TOKEN"),
     )

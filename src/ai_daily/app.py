@@ -8,6 +8,7 @@ import httpx
 
 from ai_daily.analyzer import Analyzer
 from ai_daily.config import Settings, SourceConfig
+from ai_daily.delivery_state import DeliveryState
 from ai_daily.dingtalk import DingTalkSender, render_digest
 from ai_daily.filtering import prepare_candidates
 from ai_daily.sources import collect_candidates
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class RunResult:
-    status: Literal["sent", "dry-run", "empty"]
+    status: Literal["sent", "dry-run", "empty", "already-sent"]
     candidate_count: int
     selected_count: int
     part_count: int
@@ -34,6 +35,19 @@ async def run_digest(
     if run_at.tzinfo is None or run_at.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
     run_at = run_at.astimezone(UTC)
+    report_date = run_at.astimezone(ZoneInfo(settings.timezone)).date()
+    delivery_state = DeliveryState()
+    if settings.enforce_daily_once:
+        delivery_state = DeliveryState.load(settings.delivery_state_path)
+        if delivery_state.is_delivered(report_date):
+            logger.info("status=already-sent")
+            return RunResult(
+                status="already-sent",
+                candidate_count=0,
+                selected_count=0,
+                part_count=0,
+            )
+
     cutoff = run_at - timedelta(hours=settings.window_hours)
     sent_state = SentState.load(settings.state_path)
     github_token = (
@@ -68,7 +82,6 @@ async def run_digest(
             )
 
         digest = await Analyzer(client, settings).analyze(candidates)
-        report_date = run_at.astimezone(ZoneInfo(settings.timezone)).date()
         parts = render_digest(digest, report_date, settings.window_hours)
         selected_count = len(digest.items)
         logger.info("selected=%d", selected_count)
@@ -91,6 +104,9 @@ async def run_digest(
 
     sent_state.mark_sent((str(item.url) for item in digest.items), run_at)
     sent_state.save(settings.state_path)
+    if settings.enforce_daily_once:
+        delivery_state.mark_delivered(report_date, run_at)
+        delivery_state.save(settings.delivery_state_path)
     logger.info("status=sent")
     return RunResult(
         status="sent",

@@ -1,3 +1,4 @@
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -19,6 +20,8 @@ def test_load_settings_uses_approved_defaults() -> None:
     assert settings.max_items == 8
     assert settings.timezone == "Asia/Shanghai"
     assert settings.dry_run is False
+    assert settings.delivery_state_path == Path(".state/deliveries.json")
+    assert settings.enforce_daily_once is False
 
 
 def test_base_webhook_requires_access_token() -> None:
@@ -32,10 +35,14 @@ def test_base_webhook_accepts_separate_access_token() -> None:
         "DINGTALK_WEBHOOK": "https://oapi.dingtalk.com/robot/send",
         "DINGTALK_ACCESS_TOKEN": "separate-token",
         "DRY_RUN": "true",
+        "DELIVERY_STATE_PATH": ".state/custom-deliveries.json",
+        "ENFORCE_DAILY_ONCE": "true",
     }
     settings = load_settings(env)
     assert settings.dingtalk_access_token.get_secret_value() == "separate-token"
     assert settings.dry_run is True
+    assert settings.delivery_state_path == Path(".state/custom-deliveries.json")
+    assert settings.enforce_daily_once is True
     assert parse_qs(urlparse(settings.dingtalk_webhook.get_secret_value()).query) == {}
 
 

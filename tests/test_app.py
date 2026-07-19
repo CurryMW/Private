@@ -7,6 +7,7 @@ import pytest
 from ai_daily import app, cli
 from ai_daily.analyzer import AnalysisError
 from ai_daily.config import Settings, SourceConfig
+from ai_daily.delivery_state import DeliveryState
 from ai_daily.dingtalk import DingTalkError
 from ai_daily.filtering import candidate_id
 from ai_daily.models import Candidate, Category, Digest, DigestItem
@@ -17,7 +18,12 @@ NOW = datetime(2026, 7, 18, 8, 30, tzinfo=timezone(timedelta(hours=8)))
 NOW_UTC = datetime(2026, 7, 18, 0, 30, tzinfo=UTC)
 
 
-def settings(tmp_path, *, dry_run: bool = False) -> Settings:
+def settings(
+    tmp_path,
+    *,
+    dry_run: bool = False,
+    enforce_daily_once: bool = False,
+) -> Settings:
     return Settings(
         ai_api_key="test-ai-key",
         dingtalk_webhook=(
@@ -27,6 +33,8 @@ def settings(tmp_path, *, dry_run: bool = False) -> Settings:
         timezone="Asia/Shanghai",
         dry_run=dry_run,
         state_path=tmp_path / "sent.json",
+        delivery_state_path=tmp_path / "deliveries.json",
+        enforce_daily_once=enforce_daily_once,
         github_token="test-github-token",
     )
 
@@ -92,10 +100,38 @@ def install_client_spy(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_completed_report_date_skips_before_network_work(
+    tmp_path, monkeypatch
+) -> None:
+    run_settings = settings(tmp_path, enforce_daily_once=True)
+    delivery_state = DeliveryState()
+    delivery_state.mark_delivered(NOW.date(), NOW_UTC)
+    delivery_state.save(run_settings.delivery_state_path)
+
+    def fail_client(**kwargs):
+        raise AssertionError("HTTP client must not be created")
+
+    monkeypatch.setattr(app.httpx, "AsyncClient", fail_client)
+
+    result = await app.run_digest(
+        run_settings,
+        SourceConfig(github_repositories=["owner/repository"]),
+        now=NOW,
+    )
+
+    assert result == app.RunResult(
+        status="already-sent",
+        candidate_count=0,
+        selected_count=0,
+        part_count=0,
+    )
+
+
+@pytest.mark.asyncio
 async def test_normal_run_uses_one_client_and_saves_only_selected_urls(
     tmp_path, monkeypatch
 ) -> None:
-    run_settings = settings(tmp_path)
+    run_settings = settings(tmp_path, enforce_daily_once=True)
     source_config = SourceConfig(github_repositories=["owner/repository"])
     selected = candidate("https://example.com/selected")
     unselected = candidate(
@@ -164,13 +200,18 @@ async def test_normal_run_uses_one_client_and_saves_only_selected_urls(
     saved_state = SentState.load(run_settings.state_path)
     assert saved_state.is_sent(str(selected.url))
     assert not saved_state.is_sent(str(unselected.url))
+    assert DeliveryState.load(
+        run_settings.delivery_state_path
+    ).is_delivered(NOW.date())
 
 
 @pytest.mark.asyncio
 async def test_dry_run_previews_parts_without_sender_or_state_mutation(
     tmp_path, monkeypatch, capsys
 ) -> None:
-    run_settings = settings(tmp_path, dry_run=True)
+    run_settings = settings(
+        tmp_path, dry_run=True, enforce_daily_once=True
+    )
     selected = candidate("https://example.com/dry-run")
     existing = SentState()
     existing.mark_sent(["https://example.com/existing"], NOW_UTC)
@@ -210,13 +251,14 @@ async def test_dry_run_previews_parts_without_sender_or_state_mutation(
     )
     assert run_settings.state_path.read_bytes() == original_state
     assert not SentState.load(run_settings.state_path).is_sent(str(selected.url))
+    assert not run_settings.delivery_state_path.exists()
 
 
 @pytest.mark.asyncio
 async def test_no_prepared_candidates_short_circuits_model_and_delivery(
     tmp_path, monkeypatch, caplog
 ) -> None:
-    run_settings = settings(tmp_path)
+    run_settings = settings(tmp_path, enforce_daily_once=True)
     stale = candidate("https://example.com/stale", hours_old=37)
     install_client_spy(monkeypatch)
 
@@ -242,6 +284,7 @@ async def test_no_prepared_candidates_short_circuits_model_and_delivery(
         status="empty", candidate_count=0, selected_count=0, part_count=0
     )
     assert not run_settings.state_path.exists()
+    assert not run_settings.delivery_state_path.exists()
     assert "selected=0" in caplog.messages
     assert "parts=0" in caplog.messages
 
@@ -330,7 +373,7 @@ async def test_report_date_uses_configured_timezone_across_utc_date_boundary(
 async def test_delivery_failure_on_second_part_does_not_save_state(
     tmp_path, monkeypatch
 ) -> None:
-    run_settings = settings(tmp_path)
+    run_settings = settings(tmp_path, enforce_daily_once=True)
     selected = candidate("https://example.com/send-failure")
     clients = install_client_spy(monkeypatch)
 
@@ -366,6 +409,7 @@ async def test_delivery_failure_on_second_part_does_not_save_state(
         )
 
     assert not run_settings.state_path.exists()
+    assert not run_settings.delivery_state_path.exists()
     assert clients[0].exited is True
     assert clients[0].exit_args[0] is DingTalkError
 
