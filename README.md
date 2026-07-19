@@ -1,6 +1,6 @@
 # 钉钉 AI 日报机器人
 
-本项目每天收集最新的 AI 技术动态，过滤重复内容和纯商业新闻，再调用兼容 OpenAI Chat Completions 接口的模型，从候选内容中筛选并生成最多 8 条中文摘要，最后推送到钉钉自定义机器人。项目可部署在 GitHub 私有仓库中，通过 GitHub Actions 每天北京时间 23:30 自动运行。
+本项目每天收集最新的 AI 技术动态，过滤重复内容和纯商业新闻，再调用兼容 OpenAI Chat Completions 接口的模型，从候选内容中筛选并生成最多 8 条中文摘要，最后推送到钉钉自定义机器人。项目可部署在 GitHub 私有仓库中，通过 GitHub Actions 每天北京时间 23:30 开始自动运行，并在 23:40、23:50 提供补偿触发机会。
 
 日报重点关注模型发布、学术研究、开源工具、AI 工程实践和研发范式。融资、估值、股票、财报、人事、营销等缺少技术信息的内容会被过滤。每条消息都会保留原始来源链接，并把事实摘要和影响分析分开呈现。
 
@@ -270,18 +270,20 @@ gh run view $latestRunId --log
 
 ## 管理定时任务和状态缓存
 
-`Daily DingTalk Digest` 工作流使用 cron 表达式 `30 15 * * *`，表示每天 UTC 15:30，也就是 `Asia/Shanghai` 时区的 23:30。定时工作流从默认分支运行，因此 `.github/workflows/daily.yml` 必须存在于 `main`，并且仓库 Actions 必须保持启用。
+`Daily DingTalk Digest` 工作流使用三个 cron 表达式：`30 15 * * *`、`40 15 * * *`、`50 15 * * *`，分别表示每天 UTC 15:30、15:40、15:50，也就是 `Asia/Shanghai` 时区的 23:30、23:40、23:50。定时工作流从默认分支运行，因此 `.github/workflows/daily.yml` 必须存在于默认分支（当前仓库为 `master`），并且仓库 Actions 必须保持启用。
 
 GitHub Actions 的定时任务在平台负载较高时可能延迟，具体可参考 GitHub 的[定时任务延迟说明](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#scheduled-workflows-running-at-unexpected-times)。
 
-定时运行是正式推送模式。工作流会设置 `DRY_RUN=false`，使用名为 `dingtalk-ai-daily` 的并发组，并且不会取消已经运行中的任务。
+三个定时运行都是正式推送模式。工作流会设置 `DRY_RUN=false` 和 `ENFORCE_DAILY_ONCE=true`，使用名为 `dingtalk-ai-daily` 的并发组，并且不会取消已经运行中的任务。第一次成功推送会记录北京时间日期；同一天后续触发会记录 `status=already-sent` 并在访问外部服务前成功退出。
 
 工作流使用两类缓存：
 
 - `actions/setup-python` 缓存 Python 依赖包。
-- `actions/cache` 根据最新的 `dingtalk-ai-state-<OS>-` 前缀恢复 `.state/sent.json`；每次正式运行使用运行 ID 和重试次数生成唯一保存键。
+- `actions/cache` 根据最新的 `dingtalk-ai-state-<OS>-` 前缀恢复整个 `.state` 目录；每次正式运行使用运行 ID 和重试次数生成唯一保存键。
 
-已发送状态只保存规范化 URL 的 SHA-256 哈希和带时区的时间戳。超过 30 天的记录会被清理。手动预演不会保存状态；定时或手动正式运行只有在分析完成、全部钉钉消息发送成功且工作流步骤成功后才保存状态。
+定时任务的 URL 去重状态保存在 `.state/sent.json`，手动正式测试使用独立的 `.state/manual/sent.json`，因此测试不会提前消费当天的定时日报。每日成功日期保存在 `.state/deliveries.json`。URL 状态只保存规范化 URL 的 SHA-256 哈希和带时区的时间戳，每日状态只保存 ISO 日期和带时区的成功时间；超过 30 天的记录会被清理。手动预演不会保存状态；只有分析完成、全部钉钉消息发送成功且工作流步骤成功后才保存相应状态。
+
+如果某次定时运行得到 `status=empty` 或运行失败，不会记录当日已完成，23:40 或 23:50 的后续触发仍会重新尝试。GitHub 没有创建某个 cron 运行时，其他两个 cron 是独立的补偿机会。
 
 GitHub 缓存只是优化手段，不是永久存储。缓存被清理、过期或恢复失败时，旧内容可能再次入选。可以进入 **Actions** > **Management** > **Caches** 查看缓存，参考 GitHub 的[缓存管理说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manage-caches)，或者执行：
 
@@ -356,6 +358,8 @@ CLI 会先加载当前工作目录中的 `.env`，再读取进程环境变量；
 | `TIMEZONE` | 否 | `Asia/Shanghai` | 报告日期使用的 IANA 时区；未知时区会导致运行失败。 |
 | `DRY_RUN` | 否 | `false` | 不区分大小写的 `1`、`true`、`yes` 或 `on` 表示真，其他值表示假。预演模式只打印内容，不发送或保存状态。 |
 | `STATE_PATH` | 否 | `.state/sent.json` | 本地已发送状态 JSON 路径；保存时自动创建父目录。 |
+| `DELIVERY_STATE_PATH` | 否 | `.state/deliveries.json` | 已成功推送的北京时间日期状态，仅定时任务启用每日一次保护时使用。 |
+| `ENFORCE_DAILY_ONCE` | 否 | `false` | 定时任务设为 `true`；当天已经成功推送时记录 `status=already-sent` 并跳过。 |
 | `GITHUB_TOKEN` | 否 | 空 | 用于提升 GitHub Releases API 限额；Actions 会自动提供只读 Job Token。 |
 
 仓库中的 [`.env.example`](.env.example) 只包含变量名、安全默认值和空凭证字段。真实 `.env` 必须保持未跟踪状态。
@@ -528,13 +532,17 @@ git status --short
 
 候选准备后没有内容，因此模型和钉钉都不会被调用。检查 `collected` 和 `prepared` 数量、`WINDOW_HOURS`、来源失败日志和 `config/sources.yaml`。近期 URL 可能已经存在于恢复的状态中，重复内容和纯商业新闻也会被主动过滤。空日报属于成功运行，不会修改状态。
 
+### 出现 `status=already-sent`
+
+当天已有一个定时运行完成了全部钉钉发送，因此本次补偿触发在抓取、模型和钉钉调用之前正常跳过。这是每日一次保护的预期行为，不是错误。手动运行不会写入每日成功日期。
+
 ### 定时工作流延迟或没有出现
 
-GitHub cron 不是精确调度器，平台负载较高时可能延迟。确认 Actions 已启用，`daily.yml` 位于默认 `main` 分支，并且 cron 仍是 `30 15 * * *`。不要把 cron 改成本地时间，因为 GitHub cron 使用 UTC。需要及时推送时，可以手动预演后再启动正式任务。
+GitHub cron 不是精确调度器，平台负载较高时可能延迟。确认 Actions 已启用，`daily.yml` 位于仓库默认分支，并且三个 cron 仍是 `30 15 * * *`、`40 15 * * *`、`50 15 * * *`。不要把 cron 改成本地时间，因为 GitHub cron 使用 UTC。如果三个定时运行都没有出现，需要及时推送时，可以手动预演后再启动正式任务。
 
 ### 状态文件损坏或旧内容重复出现
 
-删除或修复本地状态文件前，先确认 `STATE_PATH` 指向正确文件。程序会拒绝包含原始 URL、无效哈希或不带时区时间戳的状态文件。在 Actions 中，缓存未命中或被清理可能使旧内容重新符合条件。请检查 **Actions** > **Caches**，先运行预演，并且不要把缓存当作永久存储。
+删除或修复本地状态文件前，先确认 `STATE_PATH` 和 `DELIVERY_STATE_PATH` 指向正确文件。程序会拒绝包含原始 URL、无效哈希、无效日期或不带时区时间戳的状态文件。在 Actions 中，缓存未命中或被清理可能使旧内容重新符合条件。请检查 **Actions** > **Caches**，先运行预演，并且不要把缓存当作永久存储。
 
 ## 许可证
 
