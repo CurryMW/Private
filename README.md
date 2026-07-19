@@ -1,6 +1,6 @@
 # 钉钉 AI 日报机器人
 
-本项目每天收集最新的 AI 技术动态，过滤重复内容和纯商业新闻，再调用兼容 OpenAI Chat Completions 接口的模型，从候选内容中筛选并生成最多 8 条中文摘要，最后推送到钉钉自定义机器人。项目可部署在 GitHub 私有仓库中，通过 GitHub Actions 每天北京时间 08:30 自动运行。
+本项目每天收集最新的 AI 技术动态，过滤重复内容和纯商业新闻，再调用兼容 OpenAI Chat Completions 接口的模型，从候选内容中筛选并生成最多 8 条中文摘要，最后推送到钉钉自定义机器人。项目可部署在 GitHub 私有仓库中，通过 GitHub Actions 每天北京时间 23:30 自动运行。
 
 日报重点关注模型发布、学术研究、开源工具、AI 工程实践和研发范式。融资、估值、股票、财报、人事、营销等缺少技术信息的内容会被过滤。每条消息都会保留原始来源链接，并把事实摘要和影响分析分开呈现。
 
@@ -270,7 +270,7 @@ gh run view $latestRunId --log
 
 ## 管理定时任务和状态缓存
 
-`Daily DingTalk Digest` 工作流使用 cron 表达式 `30 0 * * *`，表示每天 UTC 00:30，也就是 `Asia/Shanghai` 时区的 08:30。定时工作流从默认分支运行，因此 `.github/workflows/daily.yml` 必须存在于 `main`，并且仓库 Actions 必须保持启用。
+`Daily DingTalk Digest` 工作流使用 cron 表达式 `30 15 * * *`，表示每天 UTC 15:30，也就是 `Asia/Shanghai` 时区的 23:30。定时工作流从默认分支运行，因此 `.github/workflows/daily.yml` 必须存在于 `main`，并且仓库 Actions 必须保持启用。
 
 GitHub Actions 的定时任务在平台负载较高时可能延迟，具体可参考 GitHub 的[定时任务延迟说明](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#scheduled-workflows-running-at-unexpected-times)。
 
@@ -530,7 +530,7 @@ git status --short
 
 ### 定时工作流延迟或没有出现
 
-GitHub cron 不是精确调度器，平台负载较高时可能延迟。确认 Actions 已启用，`daily.yml` 位于默认 `main` 分支，并且 cron 仍是 `30 0 * * *`。不要把 cron 改成本地时间，因为 GitHub cron 使用 UTC。需要及时推送时，可以手动预演后再启动正式任务。
+GitHub cron 不是精确调度器，平台负载较高时可能延迟。确认 Actions 已启用，`daily.yml` 位于默认 `main` 分支，并且 cron 仍是 `30 15 * * *`。不要把 cron 改成本地时间，因为 GitHub cron 使用 UTC。需要及时推送时，可以手动预演后再启动正式任务。
 
 ### 状态文件损坏或旧内容重复出现
 
