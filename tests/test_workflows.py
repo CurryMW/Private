@@ -94,7 +94,11 @@ def test_daily_workflow_has_schedule_and_safe_manual_default() -> None:
     triggers = workflow["on"]
 
     assert workflow["name"] == "钉钉 AI 技术日报"
-    assert triggers["schedule"] == [{"cron": "30 15 * * *"}]
+    assert triggers["schedule"] == [
+        {"cron": "30 15 * * *"},
+        {"cron": "40 15 * * *"},
+        {"cron": "50 15 * * *"},
+    ]
     dry_run = triggers["workflow_dispatch"]["inputs"]["dry_run"]
     assert dry_run["description"] == "只预览，不发送钉钉消息，也不保存状态"
     assert dry_run["type"] == "boolean"
@@ -119,6 +123,9 @@ def test_daily_job_installs_runs_and_maps_secrets_safely() -> None:
         "AI_BASE_URL": "https://apiclaude.cc/v1",
         "AI_MODEL": "claude-sonnet-4-6",
         "DRY_RUN": "${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}",
+        "STATE_PATH": "${{ github.event_name == 'schedule' && '.state/sent.json' || '.state/manual/sent.json' }}",
+        "DELIVERY_STATE_PATH": ".state/deliveries.json",
+        "ENFORCE_DAILY_ONCE": "${{ github.event_name == 'schedule' && 'true' || 'false' }}",
     }
     steps = job["steps"]
     assert any(step.get("run") == 'python -m pip install -e ".[dev]"' for step in steps)

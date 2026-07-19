@@ -3,6 +3,8 @@ name: 钉钉 AI 技术日报
 on:
   schedule:
     - cron: "30 15 * * *"
+    - cron: "40 15 * * *"
+    - cron: "50 15 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -25,6 +27,9 @@ jobs:
       AI_BASE_URL: https://apiclaude.cc/v1
       AI_MODEL: claude-sonnet-4-6
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+      STATE_PATH: ${{ github.event_name == 'schedule' && '.state/sent.json' || '.state/manual/sent.json' }}
+      DELIVERY_STATE_PATH: .state/deliveries.json
+      ENFORCE_DAILY_ONCE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
