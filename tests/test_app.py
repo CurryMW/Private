@@ -30,6 +30,7 @@ def settings(
             "https://oapi.dingtalk.com/robot/send?access_token=test-token"
         ),
         window_hours=36,
+        fallback_window_hours=168,
         timezone="Asia/Shanghai",
         dry_run=dry_run,
         state_path=tmp_path / "sent.json",
@@ -151,12 +152,13 @@ async def test_normal_run_uses_one_client_and_saves_only_selected_urls(
             observations["analyzer_client"] = client
             assert configured_settings is run_settings
 
-        async def analyze(self, candidates):
+        async def analyze(self, candidates, max_items=None):
             observations["prepared"] = candidates
+            observations["max_items"] = max_items
             return digest_for(selected)
 
-    def render(digest, report_date, window_hours):
-        observations["render"] = (digest, report_date, window_hours)
+    def render(digest, report_date, window_hours, **kwargs):
+        observations["render"] = (digest, report_date, window_hours, kwargs)
         return ["part one", "part two"]
 
     class SenderSpy:
@@ -184,15 +186,21 @@ async def test_normal_run_uses_one_client_and_saves_only_selected_urls(
     assert observations["collect"] == (
         source_config,
         clients[0],
-        NOW_UTC - timedelta(hours=36),
+        NOW_UTC - timedelta(hours=168),
         NOW_UTC,
         "test-github-token",
     )
     assert observations["analyzer_client"] is clients[0]
     assert observations["sender_client"] is clients[0]
     assert observations["prepared"] == [selected, unselected]
+    assert observations["max_items"] == 8
     assert observations["render"][1].isoformat() == "2026-07-18"
     assert observations["render"][2] == 36
+    assert observations["render"][3] == {
+        "report_title": "AI 技术日报",
+        "intro": None,
+        "scope_text": None,
+    }
     assert observations["send"] == (
         ["part one", "part two"],
         "AI 技术日报｜2026-07-18",
@@ -226,7 +234,7 @@ async def test_dry_run_previews_parts_without_sender_or_state_mutation(
         def __init__(self, client, configured_settings) -> None:
             pass
 
-        async def analyze(self, candidates):
+        async def analyze(self, candidates, max_items=None):
             return digest_for(selected)
 
     def sender_must_not_be_constructed(*args, **kwargs):
@@ -234,7 +242,9 @@ async def test_dry_run_previews_parts_without_sender_or_state_mutation(
 
     monkeypatch.setattr(app, "collect_candidates", collect)
     monkeypatch.setattr(app, "Analyzer", AnalyzerStub)
-    monkeypatch.setattr(app, "render_digest", lambda *args: ["first", "second"])
+    monkeypatch.setattr(
+        app, "render_digest", lambda *args, **kwargs: ["first", "second"]
+    )
     monkeypatch.setattr(app, "DingTalkSender", sender_must_not_be_constructed)
 
     result = await app.run_digest(
@@ -255,23 +265,32 @@ async def test_dry_run_previews_parts_without_sender_or_state_mutation(
 
 
 @pytest.mark.asyncio
-async def test_no_prepared_candidates_short_circuits_model_and_delivery(
+async def test_notice_mode_sends_and_marks_delivery_without_url_state(
     tmp_path, monkeypatch, caplog
 ) -> None:
     run_settings = settings(tmp_path, enforce_daily_once=True)
-    stale = candidate("https://example.com/stale", hours_old=37)
+    stale = candidate("https://example.com/stale", hours_old=169)
     install_client_spy(monkeypatch)
+    observations = {}
 
     async def collect(*args, **kwargs):
         return [stale]
 
     def must_not_be_called(*args, **kwargs):
-        raise AssertionError("empty run crossed an external boundary")
+        raise AssertionError("notice mode called the analyzer or digest renderer")
+
+    class SenderSpy:
+        def __init__(self, client, configured_settings) -> None:
+            pass
+
+        async def send(self, parts, title):
+            observations["send"] = (list(parts), title)
 
     monkeypatch.setattr(app, "collect_candidates", collect)
     monkeypatch.setattr(app, "Analyzer", must_not_be_called)
     monkeypatch.setattr(app, "render_digest", must_not_be_called)
-    monkeypatch.setattr(app, "DingTalkSender", must_not_be_called)
+    monkeypatch.setattr(app, "render_status_notice", lambda report_date: ["notice"])
+    monkeypatch.setattr(app, "DingTalkSender", SenderSpy)
 
     with caplog.at_level(logging.INFO, logger="ai_daily.app"):
         result = await app.run_digest(
@@ -281,12 +300,113 @@ async def test_no_prepared_candidates_short_circuits_model_and_delivery(
         )
 
     assert result == app.RunResult(
-        status="empty", candidate_count=0, selected_count=0, part_count=0
+        status="sent", candidate_count=0, selected_count=0, part_count=1
     )
     assert not run_settings.state_path.exists()
-    assert not run_settings.delivery_state_path.exists()
+    assert observations["send"] == (
+        ["notice"],
+        "AI 技术日报｜2026-07-18",
+    )
+    assert DeliveryState.load(
+        run_settings.delivery_state_path
+    ).is_delivered(NOW.date())
     assert "selected=0" in caplog.messages
-    assert "parts=0" in caplog.messages
+    assert "parts=1" in caplog.messages
+    assert "mode=notice" in caplog.messages
+
+
+@pytest.mark.asyncio
+async def test_extended_mode_uses_unseen_seven_day_content(
+    tmp_path, monkeypatch
+) -> None:
+    run_settings = settings(tmp_path, dry_run=True)
+    selected = candidate("https://example.com/extended", hours_old=72)
+    observations = {}
+    install_client_spy(monkeypatch)
+
+    async def collect(*args, **kwargs):
+        return [selected]
+
+    class AnalyzerSpy:
+        def __init__(self, client, configured_settings) -> None:
+            pass
+
+        async def analyze(self, candidates, max_items=None):
+            observations["analysis"] = (candidates, max_items)
+            return digest_for(selected)
+
+    def render(digest, report_date, window_hours, **kwargs):
+        observations["render"] = (window_hours, kwargs)
+        return ["preview"]
+
+    monkeypatch.setattr(app, "collect_candidates", collect)
+    monkeypatch.setattr(app, "Analyzer", AnalyzerSpy)
+    monkeypatch.setattr(app, "render_digest", render)
+
+    result = await app.run_digest(
+        run_settings,
+        SourceConfig(github_repositories=["owner/repository"]),
+        now=NOW,
+    )
+
+    assert result.status == "dry-run"
+    assert observations["analysis"] == ([selected], 8)
+    assert observations["render"] == (
+        168,
+        {
+            "report_title": "AI 近期技术精选",
+            "intro": None,
+            "scope_text": "信息范围：最近 7 天",
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_review_mode_reuses_sent_content_with_three_item_limit(
+    tmp_path, monkeypatch
+) -> None:
+    run_settings = settings(tmp_path, dry_run=True)
+    selected = candidate("https://example.com/review", hours_old=72)
+    sent_state = SentState()
+    sent_state.mark_sent([str(selected.url)], NOW_UTC - timedelta(hours=1))
+    sent_state.save(run_settings.state_path)
+    observations = {}
+    install_client_spy(monkeypatch)
+
+    async def collect(*args, **kwargs):
+        return [selected]
+
+    class AnalyzerSpy:
+        def __init__(self, client, configured_settings) -> None:
+            pass
+
+        async def analyze(self, candidates, max_items=None):
+            observations["analysis"] = (candidates, max_items)
+            return digest_for(selected)
+
+    def render(digest, report_date, window_hours, **kwargs):
+        observations["render"] = (window_hours, kwargs)
+        return ["preview"]
+
+    monkeypatch.setattr(app, "collect_candidates", collect)
+    monkeypatch.setattr(app, "Analyzer", AnalyzerSpy)
+    monkeypatch.setattr(app, "render_digest", render)
+
+    await app.run_digest(
+        run_settings,
+        SourceConfig(github_repositories=["owner/repository"]),
+        now=NOW,
+    )
+
+    assert observations["analysis"] == ([selected], 3)
+    assert observations["render"] == (
+        168,
+        {
+            "report_title": "AI 近期技术回顾",
+            "intro": "今日无新的合格动态，以下为近期值得回顾的技术内容。",
+            "scope_text": "回顾范围：最近 7 天",
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -312,13 +432,15 @@ async def test_persisted_sent_candidate_is_filtered_before_analysis(
         def __init__(self, client, configured_settings) -> None:
             pass
 
-        async def analyze(self, candidates):
+        async def analyze(self, candidates, max_items=None):
             analyzed_candidates.extend(candidates)
             return digest_for(fresh)
 
     monkeypatch.setattr(app, "collect_candidates", collect)
     monkeypatch.setattr(app, "Analyzer", AnalyzerSpy)
-    monkeypatch.setattr(app, "render_digest", lambda *args: ["preview"])
+    monkeypatch.setattr(
+        app, "render_digest", lambda *args, **kwargs: ["preview"]
+    )
 
     result = await app.run_digest(
         run_settings,
@@ -349,10 +471,10 @@ async def test_report_date_uses_configured_timezone_across_utc_date_boundary(
         def __init__(self, client, configured_settings) -> None:
             pass
 
-        async def analyze(self, candidates):
+        async def analyze(self, candidates, max_items=None):
             return digest_for(selected)
 
-    def render(digest, report_date, window_hours):
+    def render(digest, report_date, window_hours, **kwargs):
         rendered_dates.append(report_date)
         return ["preview"]
 
@@ -384,7 +506,7 @@ async def test_delivery_failure_on_second_part_does_not_save_state(
         def __init__(self, client, configured_settings) -> None:
             pass
 
-        async def analyze(self, candidates):
+        async def analyze(self, candidates, max_items=None):
             return digest_for(selected)
 
     class FailingSender:
@@ -398,7 +520,9 @@ async def test_delivery_failure_on_second_part_does_not_save_state(
 
     monkeypatch.setattr(app, "collect_candidates", collect)
     monkeypatch.setattr(app, "Analyzer", AnalyzerStub)
-    monkeypatch.setattr(app, "render_digest", lambda *args: ["first", "second"])
+    monkeypatch.setattr(
+        app, "render_digest", lambda *args, **kwargs: ["first", "second"]
+    )
     monkeypatch.setattr(app, "DingTalkSender", FailingSender)
 
     with pytest.raises(DingTalkError, match="safe delivery failure"):

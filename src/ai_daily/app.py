@@ -9,8 +9,8 @@ import httpx
 from ai_daily.analyzer import Analyzer
 from ai_daily.config import Settings, SourceConfig
 from ai_daily.delivery_state import DeliveryState
-from ai_daily.dingtalk import DingTalkSender, render_digest
-from ai_daily.filtering import prepare_candidates
+from ai_daily.dingtalk import DingTalkSender, render_digest, render_status_notice
+from ai_daily.selection import select_candidate_batch
 from ai_daily.sources import collect_candidates
 from ai_daily.state import SentState
 
@@ -48,7 +48,7 @@ async def run_digest(
                 part_count=0,
             )
 
-    cutoff = run_at - timedelta(hours=settings.window_hours)
+    collection_cutoff = run_at - timedelta(hours=settings.fallback_window_hours)
     sent_state = SentState.load(settings.state_path)
     github_token = (
         None
@@ -62,28 +62,52 @@ async def run_digest(
         collected = await collect_candidates(
             source_config,
             client,
-            cutoff,
+            collection_cutoff,
             run_at,
             github_token,
         )
         logger.info("collected=%d", len(collected))
 
-        candidates = prepare_candidates(collected, cutoff, sent_state)
-        logger.info("prepared=%d", len(candidates))
-        if not candidates:
-            logger.info("selected=0")
-            logger.info("parts=0")
-            logger.info("status=empty")
-            return RunResult(
-                status="empty",
-                candidate_count=0,
-                selected_count=0,
-                part_count=0,
-            )
+        batch = select_candidate_batch(
+            collected,
+            now=run_at,
+            sent_state=sent_state,
+            primary_window_hours=settings.window_hours,
+            fallback_window_hours=settings.fallback_window_hours,
+            max_items=settings.max_items,
+        )
+        logger.info("prepared=%d", len(batch.candidates))
+        logger.info("mode=%s", batch.mode)
 
-        digest = await Analyzer(client, settings).analyze(candidates)
-        parts = render_digest(digest, report_date, settings.window_hours)
-        selected_count = len(digest.items)
+        digest = None
+        report_title = "AI 技术日报"
+        if batch.mode == "notice":
+            parts = render_status_notice(report_date)
+            selected_count = 0
+        else:
+            intro = None
+            scope_text = None
+            if batch.mode == "extended":
+                report_title = "AI 近期技术精选"
+                scope_text = "信息范围：最近 7 天"
+            elif batch.mode == "review":
+                report_title = "AI 近期技术回顾"
+                intro = "今日无新的合格动态，以下为近期值得回顾的技术内容。"
+                scope_text = "回顾范围：最近 7 天"
+
+            digest = await Analyzer(client, settings).analyze(
+                batch.candidates,
+                max_items=batch.max_items,
+            )
+            parts = render_digest(
+                digest,
+                report_date,
+                batch.window_hours,
+                report_title=report_title,
+                intro=intro,
+                scope_text=scope_text,
+            )
+            selected_count = len(digest.items)
         logger.info("selected=%d", selected_count)
         logger.info("parts=%d", len(parts))
 
@@ -94,23 +118,24 @@ async def run_digest(
             logger.info("status=dry-run")
             return RunResult(
                 status="dry-run",
-                candidate_count=len(candidates),
+                candidate_count=len(batch.candidates),
                 selected_count=selected_count,
                 part_count=len(parts),
             )
 
-        title = f"AI 技术日报｜{report_date.isoformat()}"
+        title = f"{report_title}｜{report_date.isoformat()}"
         await DingTalkSender(client, settings).send(parts, title)
 
-    sent_state.mark_sent((str(item.url) for item in digest.items), run_at)
-    sent_state.save(settings.state_path)
+    if digest is not None:
+        sent_state.mark_sent((str(item.url) for item in digest.items), run_at)
+        sent_state.save(settings.state_path)
     if settings.enforce_daily_once:
         delivery_state.mark_delivered(report_date, run_at)
         delivery_state.save(settings.delivery_state_path)
     logger.info("status=sent")
     return RunResult(
         status="sent",
-        candidate_count=len(candidates),
+        candidate_count=len(batch.candidates),
         selected_count=selected_count,
         part_count=len(parts),
     )
