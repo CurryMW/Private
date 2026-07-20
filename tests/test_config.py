@@ -17,6 +17,7 @@ def test_load_settings_uses_approved_defaults() -> None:
     assert settings.ai_base_url == "https://apiclaude.cc/v1"
     assert settings.ai_model == "claude-sonnet-4-6"
     assert settings.window_hours == 36
+    assert settings.fallback_window_hours == 168
     assert settings.max_items == 8
     assert settings.timezone == "Asia/Shanghai"
     assert settings.dry_run is False
@@ -37,15 +38,24 @@ def test_base_webhook_accepts_separate_access_token() -> None:
         "DRY_RUN": "true",
         "DELIVERY_STATE_PATH": ".state/custom-deliveries.json",
         "ENFORCE_DAILY_ONCE": "true",
+        "FALLBACK_WINDOW_HOURS": "240",
     }
     settings = load_settings(env)
     assert settings.dingtalk_access_token.get_secret_value() == "separate-token"
     assert settings.dry_run is True
     assert settings.delivery_state_path == Path(".state/custom-deliveries.json")
     assert settings.enforce_daily_once is True
+    assert settings.fallback_window_hours == 240
     assert parse_qs(urlparse(settings.dingtalk_webhook.get_secret_value()).query) == {}
 
 
 def test_missing_ai_key_is_rejected() -> None:
     with pytest.raises(ValueError, match="AI_API_KEY"):
         load_settings({"DINGTALK_WEBHOOK": BASE_ENV["DINGTALK_WEBHOOK"]})
+
+
+def test_fallback_window_must_cover_primary_window() -> None:
+    with pytest.raises(ValueError, match="fallback window"):
+        load_settings(
+            BASE_ENV | {"WINDOW_HOURS": "72", "FALLBACK_WINDOW_HOURS": "48"}
+        )
