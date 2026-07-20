@@ -186,6 +186,38 @@ async def test_analyze_enforces_the_configured_maximum(
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_analyze_prompts_for_and_enforces_per_run_maximum(
+    settings: Settings, candidates: list[Candidate]
+) -> None:
+    expanded = [
+        candidates[0].model_copy(
+            update={
+                "id": f"candidate-{index:04d}",
+                "url": f"https://example.com/model-{index}",
+            }
+        )
+        for index in range(1, 5)
+    ]
+    payload = _digest_payload(
+        items=[
+            _item(url=f"https://example.com/model-{index}", title=f"模型更新 {index}")
+            for index in range(1, 5)
+        ]
+    )
+    route = respx.post(ENDPOINT).mock(
+        return_value=_completion(json.dumps(payload, ensure_ascii=False))
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(AnalysisError, match="maximum"):
+            await Analyzer(client, settings).analyze(expanded, max_items=3)
+
+    request_body = json.loads(route.calls[0].request.content)
+    assert "本次最多选择 3 条" in request_body["messages"][1]["content"]
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_analyze_rejects_url_outside_candidate_evidence_without_retrying(
     settings: Settings, candidates: list[Candidate], monkeypatch
 ) -> None:

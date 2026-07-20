@@ -24,15 +24,23 @@ class Analyzer:
         self._client = client
         self._settings = settings
 
-    async def analyze(self, candidates: list[Candidate]) -> Digest:
-        response = await self._request(candidates)
+    async def analyze(
+        self,
+        candidates: list[Candidate],
+        max_items: int | None = None,
+    ) -> Digest:
+        effective_max = self._settings.max_items if max_items is None else max_items
+        if not 1 <= effective_max <= self._settings.max_items:
+            raise ValueError("max_items must be within configured maximum")
+
+        response = await self._request(candidates, effective_max)
         content = _response_content(response)
         try:
             digest = Digest.model_validate_json(_strip_json_fence(content))
         except (ValidationError, ValueError, TypeError) as error:
             raise AnalysisError("analysis validation failed") from None
 
-        if len(digest.items) > self._settings.max_items:
+        if len(digest.items) > effective_max:
             raise AnalysisError("analysis exceeds configured maximum items")
 
         evidence_urls = {
@@ -45,13 +53,17 @@ class Analyzer:
             raise AnalysisError("analysis evidence URL is not a candidate")
         return digest
 
-    async def _request(self, candidates: list[Candidate]) -> httpx.Response:
+    async def _request(
+        self,
+        candidates: list[Candidate],
+        max_items: int,
+    ) -> httpx.Response:
         endpoint = f"{self._settings.ai_base_url.rstrip('/')}/chat/completions"
         payload = {
             "model": self._settings.ai_model,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": _user_message(candidates)},
+                {"role": "user", "content": _user_message(candidates, max_items)},
             ],
             "temperature": 0.2,
             "max_tokens": 3000,
@@ -109,7 +121,7 @@ class Analyzer:
         raise AnalysisError("AI analysis request failed")
 
 
-def _user_message(candidates: list[Candidate]) -> str:
+def _user_message(candidates: list[Candidate], max_items: int) -> str:
     evidence = [
         {
             "id": candidate.id,
@@ -125,6 +137,7 @@ def _user_message(candidates: list[Candidate]) -> str:
         [
             "候选材料：",
             json.dumps(evidence, ensure_ascii=False),
+            f"本次最多选择 {max_items} 条。",
             "输出 JSON Schema：",
             json.dumps(Digest.model_json_schema(), ensure_ascii=False),
         ]
