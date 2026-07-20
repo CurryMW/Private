@@ -13,6 +13,7 @@ from ai_daily.dingtalk import (
     DingTalkSender,
     build_webhook,
     render_digest,
+    render_status_notice,
 )
 from ai_daily.models import Category, Digest, DigestItem
 
@@ -125,6 +126,32 @@ def test_render_digest_contains_required_chinese_markdown() -> None:
     assert "[查看原文](https://example.com/reports/1?ref=official)" in text
     assert "趋势观察" in text
     assert "信息范围：最近 36 小时" in text
+
+
+def test_render_review_labels_old_content_explicitly() -> None:
+    text = render_digest(
+        _digest(item_count=1),
+        date(2026, 7, 20),
+        168,
+        report_title="AI 近期技术回顾",
+        intro="今日无新的合格动态，以下为近期值得回顾的技术内容。",
+        scope_text="回顾范围：最近 7 天",
+    )[0]
+
+    assert "# AI 近期技术回顾｜2026-07-20" in text
+    assert "今日无新的合格动态" in text
+    assert "回顾范围：最近 7 天" in text
+
+
+def test_render_status_notice_is_fixed_and_contains_no_source_claim() -> None:
+    parts = render_status_notice(date(2026, 7, 20))
+
+    assert parts == [
+        "# AI 技术日报｜2026-07-20\n\n"
+        "## 今日状态\n\n"
+        "今日暂未获取到可靠的 AI 技术内容。为避免生成未经来源支持的信息，"
+        "本次仅发送状态通知。"
+    ]
 
 
 def test_render_digest_neutralizes_markdown_in_every_controlled_text_field() -> None:
