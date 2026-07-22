@@ -11,6 +11,7 @@ from ai_daily.delivery_state import DeliveryState
 from ai_daily.dingtalk import DingTalkError
 from ai_daily.filtering import candidate_id
 from ai_daily.models import Candidate, Category, Digest, DigestItem
+from ai_daily.selection import CandidateBatch
 from ai_daily.state import SentState
 
 
@@ -407,6 +408,105 @@ async def test_review_mode_reuses_sent_content_with_three_item_limit(
             "scope_text": "回顾范围：最近 7 天",
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_validation_failure_retries_once_with_smaller_model_input(
+    tmp_path, monkeypatch
+) -> None:
+    run_settings = settings(tmp_path, dry_run=True).model_copy(
+        update={"model_candidate_limit": 12, "model_retry_candidate_limit": 6}
+    )
+    candidates = [
+        candidate(f"https://example.com/model-{index}")
+        for index in range(13)
+    ]
+    calls = []
+    install_client_spy(monkeypatch)
+
+    async def collect(*args, **kwargs):
+        return candidates
+
+    class AnalyzerSpy:
+        def __init__(self, client, configured_settings) -> None:
+            pass
+
+        async def analyze(self, received, max_items=None):
+            calls.append((list(received), max_items))
+            if len(calls) == 1:
+                raise AnalysisError(
+                    "analysis validation failed",
+                    retry_with_smaller_input=True,
+                )
+            return digest_for(candidates[0])
+
+    monkeypatch.setattr(app, "collect_candidates", collect)
+    monkeypatch.setattr(
+        app,
+        "select_candidate_batch",
+        lambda *args, **kwargs: CandidateBatch("fresh", candidates, 36, 8),
+    )
+    monkeypatch.setattr(app, "Analyzer", AnalyzerSpy)
+    monkeypatch.setattr(
+        app, "render_digest", lambda *args, **kwargs: ["preview"]
+    )
+
+    result = await app.run_digest(
+        run_settings,
+        SourceConfig(github_repositories=["owner/repository"]),
+        now=NOW,
+    )
+
+    assert result.status == "dry-run"
+    assert calls == [(candidates[:12], 8), (candidates[:6], 8)]
+
+
+@pytest.mark.asyncio
+async def test_http_403_sends_model_notice_without_saving_urls(
+    tmp_path, monkeypatch
+) -> None:
+    run_settings = settings(tmp_path, enforce_daily_once=True)
+    selected = candidate("https://example.com/model-failure")
+    calls = []
+    install_client_spy(monkeypatch)
+
+    async def collect(*args, **kwargs):
+        return [selected]
+
+    class AnalyzerSpy:
+        def __init__(self, client, configured_settings) -> None:
+            pass
+
+        async def analyze(self, received, max_items=None):
+            calls.append(list(received))
+            raise AnalysisError("AI analysis request failed with HTTP 403")
+
+    class SenderSpy:
+        def __init__(self, client, configured_settings) -> None:
+            pass
+
+        async def send(self, parts, title):
+            calls.append((list(parts), title))
+
+    monkeypatch.setattr(app, "collect_candidates", collect)
+    monkeypatch.setattr(app, "Analyzer", AnalyzerSpy)
+    monkeypatch.setattr(
+        app, "render_model_service_notice", lambda report_date: ["model notice"]
+    )
+    monkeypatch.setattr(app, "DingTalkSender", SenderSpy)
+
+    result = await app.run_digest(
+        run_settings,
+        SourceConfig(github_repositories=["owner/repository"]),
+        now=NOW,
+    )
+
+    assert result == app.RunResult("sent", 1, 0, 1)
+    assert calls == [[selected], (["model notice"], "AI 技术日报｜2026-07-18")]
+    assert not run_settings.state_path.exists()
+    assert DeliveryState.load(
+        run_settings.delivery_state_path
+    ).is_delivered(NOW.date())
 
 
 @pytest.mark.asyncio

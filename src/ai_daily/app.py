@@ -6,10 +6,15 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from ai_daily.analyzer import Analyzer
+from ai_daily.analyzer import AnalysisError, Analyzer
 from ai_daily.config import Settings, SourceConfig
 from ai_daily.delivery_state import DeliveryState
-from ai_daily.dingtalk import DingTalkSender, render_digest, render_status_notice
+from ai_daily.dingtalk import (
+    DingTalkSender,
+    render_digest,
+    render_model_service_notice,
+    render_status_notice,
+)
 from ai_daily.selection import select_candidate_batch
 from ai_daily.sources import collect_candidates
 from ai_daily.state import SentState
@@ -95,19 +100,49 @@ async def run_digest(
                 intro = "今日无新的合格动态，以下为近期值得回顾的技术内容。"
                 scope_text = "回顾范围：最近 7 天"
 
-            digest = await Analyzer(client, settings).analyze(
-                batch.candidates,
-                max_items=batch.max_items,
-            )
-            parts = render_digest(
-                digest,
-                report_date,
-                batch.window_hours,
-                report_title=report_title,
-                intro=intro,
-                scope_text=scope_text,
-            )
-            selected_count = len(digest.items)
+            model_candidates = batch.candidates[: settings.model_candidate_limit]
+            analyzer = Analyzer(client, settings)
+            try:
+                digest = await analyzer.analyze(
+                    model_candidates,
+                    max_items=batch.max_items,
+                )
+            except AnalysisError as error:
+                retry_candidates = model_candidates[
+                    : settings.model_retry_candidate_limit
+                ]
+                if (
+                    error.retry_with_smaller_input
+                    and len(retry_candidates) < len(model_candidates)
+                ):
+                    logger.info(
+                        "retrying analysis with candidates=%d",
+                        len(retry_candidates),
+                    )
+                    try:
+                        digest = await analyzer.analyze(
+                            retry_candidates,
+                            max_items=batch.max_items,
+                        )
+                    except AnalysisError:
+                        digest = None
+                else:
+                    digest = None
+
+            if digest is None:
+                logger.warning("analysis failed; sending model service notice")
+                parts = render_model_service_notice(report_date)
+                selected_count = 0
+            else:
+                parts = render_digest(
+                    digest,
+                    report_date,
+                    batch.window_hours,
+                    report_title=report_title,
+                    intro=intro,
+                    scope_text=scope_text,
+                )
+                selected_count = len(digest.items)
         logger.info("selected=%d", selected_count)
         logger.info("parts=%d", len(parts))
 
