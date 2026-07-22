@@ -77,6 +77,6 @@ def test_model_candidate_limits_are_validated() -> None:
             BASE_ENV
             | {
                 "MODEL_CANDIDATE_LIMIT": "12",
-                "MODEL_RETRY_CANDIDATE_LIMIT": "13",
+                "MODEL_RETRY_CANDIDATE_LIMIT": "12",
             }
         )

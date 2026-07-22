@@ -32,7 +32,7 @@
 新增非敏感环境变量：
 
 - `MODEL_CANDIDATE_LIMIT`：默认 `12`。每次初始模型调用最多传入 12 条已经过选择器排序的候选。必须不小于 `MAX_ITEMS`，避免模型没有足够证据可选。
-- `MODEL_RETRY_CANDIDATE_LIMIT`：默认 `6`。只有初始模型响应无法通过结构校验时，才用最靠前的最多 6 条候选重试一次。必须为正数，且不大于 `MODEL_CANDIDATE_LIMIT`。
+- `MODEL_RETRY_CANDIDATE_LIMIT`：默认 `6`。只有初始模型响应无法通过结构校验时，才用最靠前的最多 6 条候选重试一次。必须为正数，且小于 `MODEL_CANDIDATE_LIMIT`。
 
 候选排序由现有 `prepare_candidates` 保持为发布时间从新到旧，因此截取最前面的候选可保留最新、已通过技术主题和重复过滤的内容。模型的条目上限保持现有批次规则：正常和扩展模式为 `MAX_ITEMS`，回顾模式为 3。
 

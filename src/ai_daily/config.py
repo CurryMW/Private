@@ -116,9 +116,9 @@ class Settings(BaseModel):
             raise ValueError("fallback window must cover primary window")
         if self.model_candidate_limit < self.max_items:
             raise ValueError("model candidate limit must cover max items")
-        if self.model_retry_candidate_limit > self.model_candidate_limit:
+        if self.model_retry_candidate_limit >= self.model_candidate_limit:
             raise ValueError(
-                "model retry candidate limit must not exceed initial limit"
+                "model retry candidate limit must be smaller than initial limit"
             )
         return self
 

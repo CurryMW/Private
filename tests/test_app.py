@@ -510,6 +510,80 @@ async def test_http_403_sends_model_notice_without_saving_urls(
 
 
 @pytest.mark.asyncio
+async def test_failed_validation_retry_sends_notice_without_saving_urls(
+    tmp_path, monkeypatch
+) -> None:
+    run_settings = settings(tmp_path, enforce_daily_once=True)
+    titles = [
+        "Transformer inference compiler",
+        "Vision dataset benchmark",
+        "Speech model training recipe",
+        "Agent memory architecture",
+        "Multimodal evaluation suite",
+        "Open source tensor runtime",
+        "Language model alignment method",
+        "Diffusion sampling algorithm",
+        "Retrieval embedding research",
+        "Robotics policy learning",
+        "Distributed checkpoint system",
+        "Quantization kernel release",
+        "Synthetic data pipeline",
+    ]
+    candidates = [
+        candidate(
+            f"https://example.com/retry-failure-{index}",
+            title=title,
+        )
+        for index, title in enumerate(titles)
+    ]
+    analyzed = []
+    sent = []
+    install_client_spy(monkeypatch)
+
+    async def collect(*args, **kwargs):
+        return candidates
+
+    class AnalyzerStub:
+        def __init__(self, client, configured_settings) -> None:
+            pass
+
+        async def analyze(self, received, max_items=None):
+            analyzed.append((list(received), max_items))
+            raise AnalysisError(
+                "analysis validation failed",
+                retry_with_smaller_input=True,
+            )
+
+    class SenderSpy:
+        def __init__(self, client, configured_settings) -> None:
+            pass
+
+        async def send(self, parts, title):
+            sent.append((list(parts), title))
+
+    monkeypatch.setattr(app, "collect_candidates", collect)
+    monkeypatch.setattr(app, "Analyzer", AnalyzerStub)
+    monkeypatch.setattr(
+        app, "render_model_service_notice", lambda report_date: ["model notice"]
+    )
+    monkeypatch.setattr(app, "DingTalkSender", SenderSpy)
+
+    result = await app.run_digest(
+        run_settings,
+        SourceConfig(github_repositories=["owner/repository"]),
+        now=NOW,
+    )
+
+    assert result == app.RunResult("sent", 13, 0, 1)
+    assert analyzed == [(candidates[:12], 8), (candidates[:6], 8)]
+    assert sent == [(["model notice"], "AI 技术日报｜2026-07-18")]
+    assert not run_settings.state_path.exists()
+    assert DeliveryState.load(
+        run_settings.delivery_state_path
+    ).is_delivered(NOW.date())
+
+
+@pytest.mark.asyncio
 async def test_persisted_sent_candidate_is_filtered_before_analysis(
     tmp_path, monkeypatch
 ) -> None:

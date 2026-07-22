@@ -481,3 +481,26 @@ async def test_analysis_errors_do_not_expose_response_body(
     assert secret_body not in str(captured.value)
     assert "do-not-expose" not in str(captured.value)
     assert captured.value.retry_with_smaller_input is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_analyze_wraps_nonretryable_request_error_without_details(
+    settings: Settings, candidates: list[Candidate]
+) -> None:
+    request = httpx.Request("POST", ENDPOINT)
+    route = respx.post(ENDPOINT).mock(
+        side_effect=httpx.ReadError(
+            "private transport detail",
+            request=request,
+        )
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(AnalysisError) as captured:
+            await Analyzer(client, settings).analyze(candidates)
+
+    assert route.call_count == 1
+    assert str(captured.value) == "AI analysis request failed"
+    assert captured.value.retry_with_smaller_input is False
+    assert captured.value.__cause__ is None

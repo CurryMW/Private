@@ -357,7 +357,7 @@ CLI 会先加载当前工作目录中的 `.env`，再读取进程环境变量；
 | `FALLBACK_WINDOW_HOURS` | 否 | `168` | 不小于 `WINDOW_HOURS` 的正整数；新内容不足时扩展候选范围，默认最近 7 天。 |
 | `MAX_ITEMS` | 否 | `8` | 1 到 8 之间的整数；模型返回超过该数量会校验失败。 |
 | `MODEL_CANDIDATE_LIMIT` | 否 | `12` | 每次初始模型调用最多包含的候选数，必须不小于 `MAX_ITEMS`。 |
-| `MODEL_RETRY_CANDIDATE_LIMIT` | 否 | `6` | 模型结构校验失败时的一次缩减重试候选数，必须不大于初始上限。 |
+| `MODEL_RETRY_CANDIDATE_LIMIT` | 否 | `6` | 模型结构校验失败时的一次缩减重试候选数，必须小于初始上限。 |
 | `TIMEZONE` | 否 | `Asia/Shanghai` | 报告日期使用的 IANA 时区；未知时区会导致运行失败。 |
 | `DRY_RUN` | 否 | `false` | 不区分大小写的 `1`、`true`、`yes` 或 `on` 表示真，其他值表示假。预演模式只打印内容，不发送或保存状态。 |
 | `STATE_PATH` | 否 | `.state/sent.json` | 本地已发送状态 JSON 路径；保存时自动创建父目录。 |

@@ -108,6 +108,8 @@ class Analyzer:
                     ) from None
                 await asyncio.sleep(attempt + 1)
                 continue
+            except httpx.RequestError:
+                raise AnalysisError("AI analysis request failed") from None
 
             if response.status_code == 429:
                 if attempt == 2:

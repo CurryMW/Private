@@ -34,7 +34,7 @@ def test_model_candidate_limits_are_validated() -> None:
             BASE_ENV
             | {
                 "MODEL_CANDIDATE_LIMIT": "12",
-                "MODEL_RETRY_CANDIDATE_LIMIT": "13",
+                "MODEL_RETRY_CANDIDATE_LIMIT": "12",
             }
         )
 ~~~
@@ -72,8 +72,8 @@ model_retry_candidate_limit: int = Field(default=6, gt=0)
 
 if self.model_candidate_limit < self.max_items:
     raise ValueError("model candidate limit must cover max items")
-if self.model_retry_candidate_limit > self.model_candidate_limit:
-    raise ValueError("model retry candidate limit must not exceed initial limit")
+if self.model_retry_candidate_limit >= self.model_candidate_limit:
+    raise ValueError("model retry candidate limit must be smaller than initial limit")
 ~~~
 
 ~~~python
