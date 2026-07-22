@@ -18,6 +18,8 @@ def test_load_settings_uses_approved_defaults() -> None:
     assert settings.ai_model == "claude-sonnet-4-6"
     assert settings.window_hours == 36
     assert settings.fallback_window_hours == 168
+    assert settings.model_candidate_limit == 12
+    assert settings.model_retry_candidate_limit == 6
     assert settings.max_items == 8
     assert settings.timezone == "Asia/Shanghai"
     assert settings.dry_run is False
@@ -39,6 +41,8 @@ def test_base_webhook_accepts_separate_access_token() -> None:
         "DELIVERY_STATE_PATH": ".state/custom-deliveries.json",
         "ENFORCE_DAILY_ONCE": "true",
         "FALLBACK_WINDOW_HOURS": "240",
+        "MODEL_CANDIDATE_LIMIT": "16",
+        "MODEL_RETRY_CANDIDATE_LIMIT": "8",
     }
     settings = load_settings(env)
     assert settings.dingtalk_access_token.get_secret_value() == "separate-token"
@@ -46,6 +50,8 @@ def test_base_webhook_accepts_separate_access_token() -> None:
     assert settings.delivery_state_path == Path(".state/custom-deliveries.json")
     assert settings.enforce_daily_once is True
     assert settings.fallback_window_hours == 240
+    assert settings.model_candidate_limit == 16
+    assert settings.model_retry_candidate_limit == 8
     assert parse_qs(urlparse(settings.dingtalk_webhook.get_secret_value()).query) == {}
 
 
@@ -58,4 +64,19 @@ def test_fallback_window_must_cover_primary_window() -> None:
     with pytest.raises(ValueError, match="fallback window"):
         load_settings(
             BASE_ENV | {"WINDOW_HOURS": "72", "FALLBACK_WINDOW_HOURS": "48"}
+        )
+
+
+def test_model_candidate_limits_are_validated() -> None:
+    with pytest.raises(ValueError, match="model candidate limit"):
+        load_settings(
+            BASE_ENV | {"MAX_ITEMS": "8", "MODEL_CANDIDATE_LIMIT": "7"}
+        )
+    with pytest.raises(ValueError, match="model retry candidate limit"):
+        load_settings(
+            BASE_ENV
+            | {
+                "MODEL_CANDIDATE_LIMIT": "12",
+                "MODEL_RETRY_CANDIDATE_LIMIT": "13",
+            }
         )

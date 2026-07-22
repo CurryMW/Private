@@ -18,6 +18,15 @@ SYSTEM_PROMPT = """你是严谨的 AI 技术编辑。只能使用候选材料中
 class AnalysisError(RuntimeError):
     """Raised when model analysis cannot produce a safe, valid digest."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_with_smaller_input: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.retry_with_smaller_input = retry_with_smaller_input
+
 
 class Analyzer:
     def __init__(self, client: httpx.AsyncClient, settings: Settings) -> None:
@@ -38,7 +47,10 @@ class Analyzer:
         try:
             digest = Digest.model_validate_json(_strip_json_fence(content))
         except (ValidationError, ValueError, TypeError) as error:
-            raise AnalysisError("analysis validation failed") from None
+            raise AnalysisError(
+                "analysis validation failed",
+                retry_with_smaller_input=True,
+            ) from None
 
         if len(digest.items) > effective_max:
             raise AnalysisError("analysis exceeds configured maximum items")

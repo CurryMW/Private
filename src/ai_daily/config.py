@@ -79,6 +79,8 @@ class Settings(BaseModel):
     dingtalk_access_token: SecretStr | None = None
     window_hours: int = Field(default=36, gt=0)
     fallback_window_hours: int = Field(default=168, gt=0)
+    model_candidate_limit: int = Field(default=12, gt=0)
+    model_retry_candidate_limit: int = Field(default=6, gt=0)
     max_items: int = Field(default=8, gt=0, le=8)
     timezone: str = "Asia/Shanghai"
     dry_run: bool = False
@@ -112,6 +114,12 @@ class Settings(BaseModel):
     def validate_content_windows(self) -> "Settings":
         if self.fallback_window_hours < self.window_hours:
             raise ValueError("fallback window must cover primary window")
+        if self.model_candidate_limit < self.max_items:
+            raise ValueError("model candidate limit must cover max items")
+        if self.model_retry_candidate_limit > self.model_candidate_limit:
+            raise ValueError(
+                "model retry candidate limit must not exceed initial limit"
+            )
         return self
 
 
@@ -148,6 +156,10 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         dingtalk_access_token=_optional(source, "DINGTALK_ACCESS_TOKEN"),
         window_hours=source.get("WINDOW_HOURS", "36"),
         fallback_window_hours=source.get("FALLBACK_WINDOW_HOURS", "168"),
+        model_candidate_limit=source.get("MODEL_CANDIDATE_LIMIT", "12"),
+        model_retry_candidate_limit=source.get(
+            "MODEL_RETRY_CANDIDATE_LIMIT", "6"
+        ),
         max_items=source.get("MAX_ITEMS", "8"),
         timezone=source.get("TIMEZONE", "Asia/Shanghai"),
         dry_run=_parse_bool(source.get("DRY_RUN")),

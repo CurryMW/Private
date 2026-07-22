@@ -186,6 +186,24 @@ async def test_analyze_enforces_the_configured_maximum(
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_analyze_marks_invalid_digest_as_retryable_with_smaller_input(
+    settings: Settings, candidates: list[Candidate]
+) -> None:
+    respx.post(ENDPOINT).mock(
+        return_value=_completion(
+            json.dumps(_digest_payload(overview=""), ensure_ascii=False)
+        )
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(AnalysisError) as captured:
+            await Analyzer(client, settings).analyze(candidates)
+
+    assert captured.value.retry_with_smaller_input is True
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_analyze_prompts_for_and_enforces_per_run_maximum(
     settings: Settings, candidates: list[Candidate]
 ) -> None:
@@ -462,3 +480,4 @@ async def test_analysis_errors_do_not_expose_response_body(
 
     assert secret_body not in str(captured.value)
     assert "do-not-expose" not in str(captured.value)
+    assert captured.value.retry_with_smaller_input is False
