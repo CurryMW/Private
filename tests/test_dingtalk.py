@@ -13,6 +13,7 @@ from ai_daily.dingtalk import (
     DingTalkSender,
     build_webhook,
     render_digest,
+    render_model_service_notice,
     render_status_notice,
 )
 from ai_daily.models import Category, Digest, DigestItem
@@ -151,6 +152,15 @@ def test_render_status_notice_is_fixed_and_contains_no_source_claim() -> None:
         "## 今日状态\n\n"
         "今日暂未获取到可靠的 AI 技术内容。为避免生成未经来源支持的信息，"
         "本次仅发送状态通知。"
+    ]
+
+
+def test_render_model_service_notice_is_fixed_and_safe() -> None:
+    assert render_model_service_notice(date(2026, 7, 22)) == [
+        "# AI 技术日报｜2026-07-22\n\n"
+        "## 模型服务状态\n\n"
+        "今日的可靠候选内容已收集，但摘要生成服务暂时不可用。"
+        "为避免发送未经校验的内容，本次仅发送状态通知。"
     ]
 
 

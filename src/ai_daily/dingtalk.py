@@ -167,6 +167,21 @@ def render_status_notice(
     return [text]
 
 
+def render_model_service_notice(
+    report_date: date,
+    max_chars: int = MAX_MARKDOWN_CHARS,
+) -> list[str]:
+    text = (
+        f"# AI 技术日报｜{report_date.isoformat()}\n\n"
+        "## 模型服务状态\n\n"
+        "今日的可靠候选内容已收集，但摘要生成服务暂时不可用。"
+        "为避免发送未经校验的内容，本次仅发送状态通知。"
+    )
+    if max_chars <= 0 or len(text) > min(max_chars, MAX_MARKDOWN_CHARS):
+        raise ValueError("model service notice exceeds max_chars")
+    return [text]
+
+
 class DingTalkSender:
     def __init__(self, client: httpx.AsyncClient, settings: Settings) -> None:
         self._client = client
