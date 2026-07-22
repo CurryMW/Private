@@ -131,6 +131,7 @@ async def run_digest(
 
             if digest is None:
                 logger.warning("analysis failed; sending model service notice")
+                report_title = "AI 技术日报"
                 parts = render_model_service_notice(report_date)
                 selected_count = 0
             else:

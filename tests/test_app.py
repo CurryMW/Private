@@ -466,7 +466,7 @@ async def test_http_403_sends_model_notice_without_saving_urls(
     tmp_path, monkeypatch
 ) -> None:
     run_settings = settings(tmp_path, enforce_daily_once=True)
-    selected = candidate("https://example.com/model-failure")
+    selected = candidate("https://example.com/model-failure", hours_old=72)
     calls = []
     install_client_spy(monkeypatch)
 
