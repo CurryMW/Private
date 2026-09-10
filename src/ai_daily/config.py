@@ -18,7 +18,7 @@ from pydantic import (
 
 
 PRODUCTION_MODEL = "gpt-5.6-luna"
-DEFAULT_AI_BASE_URL = "https://api.teamorouter.com/v1"
+DEFAULT_AI_BASE_URL = "https://api.teamorouter.cn/v1"
 
 
 def validate_ai_base_url(value: str) -> str:

@@ -15,7 +15,7 @@ BASE_ENV = {
 
 def test_load_settings_uses_approved_defaults() -> None:
     settings = load_settings(BASE_ENV)
-    assert settings.ai_base_url == "https://api.teamorouter.com/v1"
+    assert settings.ai_base_url == "https://api.teamorouter.cn/v1"
     assert settings.ai_model == "gpt-5.6-luna"
     assert settings.window_hours == 36
     assert settings.fallback_window_hours == 168

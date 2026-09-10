@@ -1,26 +1,51 @@
-rss:
-  - name: OpenAI
-    url: https://openai.com/news/rss.xml
-  - name: Google DeepMind
-    url: https://deepmind.google/blog/rss.xml
-  - name: Microsoft Research
-    url: https://www.microsoft.com/en-us/research/feed/
-  - name: NVIDIA Developer Blog
-    url: https://developer.nvidia.com/blog/feed/
-  - name: Hugging Face Blog
-    url: https://huggingface.co/blog/feed.xml
-arxiv:
-  categories: [cs.AI, cs.LG, cs.CL, cs.CV]
-  max_results: 40
-huggingface_daily_papers:
-  enabled: true
-  limit_per_day: 20
-github_repositories:
-  - huggingface/transformers
-  - vllm-project/vllm
-  - ggml-org/llama.cpp
-  - langchain-ai/langchain
-  - modelcontextprotocol/python-sdk
-  - microsoft/semantic-kernel
-  - crewAIInc/crewAI
-  - langgenius/dify
+baidu_search:
+  fixed_queries:
+    - AI 模型 发布 更新 最近
+    - latest AI model release update
+    - AI 产品 发布 功能 更新
+    - latest AI product launch feature update
+    - AI Agent 智能体 框架 发布
+    - latest AI agent framework release
+    - AI 开发工具 API 平台 更新
+    - latest AI developer tools API platform update
+    - AI 开源项目 发布 更新
+    - latest open source AI project release
+    - 人工智能 研究 论文 发布
+    - latest artificial intelligence research paper
+    - AI 训练 推理 芯片 技术 更新
+    - latest AI training inference chip technology
+    - 人工智能 政策 安全 重大更新
+    - latest major AI policy safety update
+  rotating_queries:
+    - OpenAI AI 模型 产品 最新更新
+    - Google DeepMind AI 研究 模型 最新更新
+    - Anthropic Claude AI 最新更新
+    - Meta AI 模型 开源 最新更新
+    - NVIDIA AI 推理 芯片 最新更新
+    - 百度 文心 AI 模型 最新更新
+    - 阿里 通义千问 AI 最新更新
+    - DeepSeek AI 模型 最新更新
+  first_party_domains:
+    - openai.com
+    - anthropic.com
+    - deepmind.google
+    - ai.google
+    - ai.meta.com
+    - nvidia.com
+    - microsoft.com
+    - huggingface.co
+    - cloud.baidu.com
+    - research.baidu.com
+    - paddlepaddle.org.cn
+    - alibabacloud.com
+    - deepseek.com
+  trusted_domains:
+    - reuters.com
+    - arstechnica.com
+    - technologyreview.com
+    - techcrunch.com
+    - theverge.com
+    - venturebeat.com
+    - infoq.com
+    - infoq.cn
+    - jiqizhixin.com

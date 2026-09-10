@@ -1,8 +1,8 @@
-name: 钉钉 AI 技术日报
+name: AI 情报摘要
 
 on:
   schedule:
-    - cron: "30 16 * * *"
+    - cron: "30 0 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -15,17 +15,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: dingtalk-ai-daily
+  group: dingtalk-ai-digest
   cancel-in-progress: false
 
 jobs:
   digest:
     runs-on: ubuntu-latest
     env:
-      AI_BASE_URL: https://api.teamorouter.com/v1
+      AI_BASE_URL: https://api.teamorouter.cn/v1
       AI_MODEL: gpt-5.6-luna
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
-      STATE_PATH: ${{ github.event_name == 'schedule' && '.state/sent.json' || '.state/manual/sent.json' }}
+      STATE_PATH: .state/sent.json
       DELIVERY_STATE_PATH: .state/deliveries.json
       ENFORCE_DAILY_ONCE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
     steps:
@@ -38,16 +38,18 @@ jobs:
       - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .state
-          key: dingtalk-ai-state-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: dingtalk-ai-state-${{ runner.os }}-
+          key: dingtalk-ai-digest-state-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dingtalk-ai-digest-state-${{ runner.os }}-
+            dingtalk-ai-state-${{ runner.os }}-
       - run: python -m ai_daily.cli
         env:
+          BAIDU_SEARCH_API_KEY: ${{ secrets.BAIDU_SEARCH_API_KEY }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_ACCESS_TOKEN: ${{ secrets.DINGTALK_ACCESS_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         if: "success() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)"
         with:
           path: .state
-          key: dingtalk-ai-state-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: dingtalk-ai-digest-state-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

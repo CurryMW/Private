@@ -1,6 +1,6 @@
-# 钉钉 AI 日报机器人
+# AI 情报摘要与 GitHub 趋势快照
 
-本项目每天收集最新的 AI 技术动态，过滤重复内容和纯商业新闻，再调用兼容 OpenAI Chat Completions 接口的模型，从候选内容中筛选并生成最多 8 条中文摘要，最后推送到钉钉自定义机器人。项目可部署在 GitHub 私有仓库中，通过 GitHub Actions 每天北京时间 00:30 自动运行。
+本项目包含两个相互独立的流程：`AI 情报摘要`只通过百度官方搜索 API 发现候选，再由 TeamoRouter `gpt-5.6-luna` 生成最多 8 条中文摘要；`GitHub 趋势快照`使用 GitHub 官方 API 维护独立的仓库基线。AI 情报工作流设计为每天北京时间 08:30 运行；当前改动只在本地准备，未部署或远程启用定时任务。
 
 日报重点关注模型发布、学术研究、开源工具、AI 工程实践和研发范式。融资、估值、股票、财报、人事、营销等缺少技术信息的内容会被过滤。每条消息都会保留原始来源链接，并把事实摘要和影响分析分开呈现。
 
@@ -31,6 +31,7 @@
 - Git
 - Python 3.12，其他 Python 版本不在当前支持范围内
 - TeamoRouter 模型服务的 API Key
+- 百度官方搜索 API Key
 - 钉钉自定义机器人完整 Webhook，或者基础 Webhook 加 `access_token`
 
 凭证只应保存在被 Git 忽略的 `.env` 文件中。不要把凭证写入 `.env.example`、命令参数、Git 提交或截图。
@@ -52,8 +53,9 @@ Copy-Item .env.example .env
 
 ```dotenv
 AI_API_KEY=
-AI_BASE_URL=https://api.teamorouter.com/v1
+AI_BASE_URL=https://api.teamorouter.cn/v1
 AI_MODEL=gpt-5.6-luna
+BAIDU_SEARCH_API_KEY=
 DINGTALK_WEBHOOK=
 DINGTALK_ACCESS_TOKEN=
 DRY_RUN=true
@@ -64,6 +66,7 @@ DRY_RUN=true
 - `AI_API_KEY`：TeamoRouter 模型服务提供的 API Key。
 - `AI_BASE_URL`：TeamoRouter OpenAI-compatible 基础地址。
 - `AI_MODEL`：唯一生产模型，必须显式填写 `gpt-5.6-luna`。
+- `BAIDU_SEARCH_API_KEY`：百度千帆 Web Search API 凭据，与模型凭据彻底分离。
 - `DINGTALK_WEBHOOK`：完整的 HTTPS Webhook，或者不含令牌的基础 Webhook。
 - `DINGTALK_ACCESS_TOKEN`：如果完整 Webhook 已经包含 `access_token` 查询参数，可以留空；否则必须填写。
 
@@ -94,11 +97,11 @@ try {
 status=dry-run candidates=12 selected=6 parts=1
 ```
 
-数量会随当前信息源变化。正常进度日志包括 `collected=N`、`prepared=N`、`selected=N`、`parts=N` 和 `status=dry-run`。预演内容会包含公开来源 URL，但不应出现 API Key、完整钉钉 Webhook 或 `access_token`。
+数量会随百度可检索到的公开信息变化。正常进度日志包括 `collected=N` 和 `status=dry-run`，最终摘要显示候选数、入选数和消息分片数。预演可调用搜索和模型，但不构造钉钉发送器，不修改成功状态，也不应出现 API Key、完整 Webhook 或 `access_token`。
 
 ### 完成结果
 
-至此，本地环境已经能够采集、过滤、分析和渲染日报，同时不会推送消息或修改状态。修改默认值前请先阅读[环境变量参考](#environment-variables)；预演结果符合预期后，再按照[私有仓库部署指南](#github-deployment)上线。
+至此，本地环境可以预演 AI 情报摘要，同时不会推送消息或修改状态。本地 dry-run 通过不等于 GitHub Actions 已部署；要远程启用定时任务，仍需先配置 Secrets、手工触发 dry-run 并审查日志。
 
 <a id="github-deployment"></a>
 
@@ -188,6 +191,7 @@ git status --short --branch
 
 | Secret 名称 | 是否必需 | 填写内容 |
 | --- | --- | --- |
+| `BAIDU_SEARCH_API_KEY` | 是 | 百度官方 Web Search API Key |
 | `AI_API_KEY` | 是 | TeamoRouter 模型服务的 API Key |
 | `DINGTALK_WEBHOOK` | 是 | 钉钉自定义机器人的完整 HTTPS Webhook，或基础 Webhook |
 | `DINGTALK_ACCESS_TOKEN` | 条件必需 | 完整 Webhook 不含 `access_token` 时填写；否则可以不创建 |
@@ -199,12 +203,13 @@ git status --short --branch
 逐条执行以下命令。每条命令出现隐藏输入提示后，再粘贴对应的真实值：
 
 ```powershell
+gh secret set BAIDU_SEARCH_API_KEY
 gh secret set AI_API_KEY
 gh secret set DINGTALK_WEBHOOK
 gh secret set DINGTALK_ACCESS_TOKEN
 ```
 
-如果 `DINGTALK_WEBHOOK` 已经是包含非空 `access_token` 的完整 URL，请跳过第三条命令。
+如果 `DINGTALK_WEBHOOK` 已经是包含非空 `access_token` 的完整 URL，请跳过第四条命令。
 
 只查看 Secret 名称，不显示其值：
 
@@ -217,9 +222,10 @@ gh secret list
 1. 打开私有仓库。
 2. 进入 **Settings** > **Secrets and variables** > **Actions**。
 3. 选择 **Secrets** 标签，然后点击 **New repository secret**。
-4. 创建 `AI_API_KEY`。
-5. 创建 `DINGTALK_WEBHOOK`。
-6. 只有 Webhook 不包含 `access_token` 时，才创建 `DINGTALK_ACCESS_TOKEN`。
+4. 创建 `BAIDU_SEARCH_API_KEY`。
+5. 创建 `AI_API_KEY`。
+6. 创建 `DINGTALK_WEBHOOK`。
+7. 只有 Webhook 不包含 `access_token` 时，才创建 `DINGTALK_ACCESS_TOKEN`。
 
 GitHub 保存 Secret 后不会再次显示原值。如果怀疑密钥泄漏，应在服务商或钉钉后台轮换密钥，再更新仓库 Secret，并检查 Git 历史和 Actions 日志。
 
@@ -250,7 +256,7 @@ gh run view $latestRunId --log
 ### 使用 GitHub 网页界面运行预演
 
 1. 打开仓库的 **Actions** 页面。
-2. 选择 **Daily DingTalk Digest**。
+2. 选择 **AI 情报摘要**。
 3. 点击 **Run workflow**，分支选择 `main`。
 4. 保持 **Print a preview without sending or saving state** 为启用状态。
 5. 点击 **Run workflow**，打开新任务并检查 `digest` 作业日志。GitHub 的具体操作可参考[手动运行工作流说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow?tool=webui)。
@@ -274,20 +280,20 @@ gh run view $latestRunId --log
 
 ## 管理定时任务和状态缓存
 
-`Daily DingTalk Digest` 工作流只使用一个 cron 表达式 `30 16 * * *`，表示每天 UTC 16:30，也就是 `Asia/Shanghai` 时区次日的 00:30。定时工作流从默认分支运行，因此 `.github/workflows/daily.yml` 必须存在于默认分支（当前仓库为 `master`），并且仓库 Actions 必须保持启用。
+`AI 情报摘要` 工作流只使用一个 cron 表达式 `30 0 * * *`，表示每天 UTC 00:30，也就是 `Asia/Shanghai` 时区的 08:30。定时工作流只会在相关改动推送到默认分支且仓库 Actions 启用后生效；仅在本地提交该配置不等于已部署。
 
 GitHub Actions 的定时任务在平台负载较高时可能延迟，具体可参考 GitHub 的[定时任务延迟说明](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#scheduled-workflows-running-at-unexpected-times)。
 
-定时运行是正式推送模式。工作流会设置 `DRY_RUN=false` 和 `ENFORCE_DAILY_ONCE=true`，使用名为 `dingtalk-ai-daily` 的并发组，并且不会取消已经运行中的任务。成功推送会记录北京时间日期；同一天再次手动重跑定时事件时会记录 `status=already-sent` 并在访问外部服务前成功退出。
+定时运行是正式推送模式。工作流会设置 `DRY_RUN=false` 和 `ENFORCE_DAILY_ONCE=true`，使用名为 `dingtalk-ai-digest` 的独立并发组，不会取消已在运行的任务。只有百度搜索、证据筛选、模型生成、消息校验和钉钉全部分片发送成功后，程序才记录 URL 与当日成功状态。
 
 工作流使用两类缓存：
 
 - `actions/setup-python` 缓存 Python 依赖包。
-- `actions/cache` 根据最新的 `dingtalk-ai-state-<OS>-` 前缀恢复整个 `.state` 目录；每次正式运行使用运行 ID 和重试次数生成唯一保存键。
+- `actions/cache` 优先恢复 `dingtalk-ai-digest-state-<OS>-` 独立前缀，并保留旧 `dingtalk-ai-state-<OS>-` 前缀作为一次性迁移来源，使已发送 URL 历史继续生效。
 
-定时任务的 URL 去重状态保存在 `.state/sent.json`，手动正式测试使用独立的 `.state/manual/sent.json`，因此测试不会提前消费当天的定时日报。每日成功日期保存在 `.state/deliveries.json`，并且只有定时任务会写入该文件。URL 状态只保存规范化 URL 的 SHA-256 哈希和带时区的时间戳，每日状态只保存 ISO 日期和带时区的成功时间；超过 30 天的记录会被清理。手动预演不会保存状态；只有全部钉钉消息发送成功且工作流步骤成功后才保存相应状态。
+定时和手工正式运行共用 `.state/sent.json` 中的 30 天 URL 去重历史，避免人工验收后又重复发送。定时运行的当日成功日期保存在 `.state/deliveries.json`。URL 历史只保存规范化 URL 的 SHA-256 哈希、事件签名和带时区的时间戳；损坏的旧状态会使任务失败，不会被当作空历史继续发送。
 
-每次运行会先选择最近 36 小时内未发送的技术内容；没有时扩展到最近 7 天的未发送内容；仍没有时可发送最多 3 条并明确标记为“AI 近期技术回顾”；如果 7 天内没有任何通过质量过滤的可靠候选，则不调用模型，改发固定“今日状态”通知。内容模式的模型服务返回无效结果时，程序会以更小候选集重试一次；持续失败则发送“模型服务状态”通知，不保存 URL 状态。四种模式只要被钉钉完整接受，定时任务都会记录当天已完成。
+每次 AI 情报运行最多发起 20 次百度搜索（16 个固定中英文主题加 4 个轮换热点），只处理最近 36 小时的候选。没有合格内容时任务成功结束但钉钉保持静默，不写成功状态；搜索、模型或钉钉失败时任务非零退出，不发送错误、降级或运行状态通知。百度限额或免费额度耗尽也按搜索失败处理，不自动改用后付费或其他搜索来源。
 
 GitHub 缓存只是优化手段，不是永久存储。缓存被清理、过期或恢复失败时，旧内容可能再次入选。可以进入 **Actions** > **Management** > **Caches** 查看缓存，参考 GitHub 的[缓存管理说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manage-caches)，或者执行：
 
@@ -301,30 +307,21 @@ gh cache list
 
 ## 维护内容来源
 
-在项目根目录编辑 [`config/sources.yaml`](config/sources.yaml)。支持的来源配置如下：
+在项目根目录编辑 [`config/sources.yaml`](config/sources.yaml)。AI 情报只接受百度搜索计划，生产配置不包含 RSS、arXiv、Hugging Face 或 GitHub Releases：
 
 ```yaml
-rss:
-  - name: Official Feed
-    url: https://news.example.com/feed.xml
-arxiv:
-  categories: [cs.AI, cs.LG]
-  max_results: 40
-huggingface_daily_papers:
-  enabled: true
-  limit_per_day: 20
-github_repositories:
-  - owner/repository
+baidu_search:
+  fixed_queries: []       # 必须恰好 16 条
+  rotating_queries: []    # 至少 4 条，每天取 4 条
+  first_party_domains: []
+  trusted_domains: []
 ```
 
 配置要求：
 
-- RSS 应使用稳定的官方 RSS 或 Atom 地址。
-- GitHub 仓库必须使用 `owner/repository` 格式，只采集正式 Release，跳过草稿和预发布版本。
-- arXiv 至少配置一个分类，`max_results` 必须是正整数。
-- Hugging Face 的 `limit_per_day` 必须是正整数。
-- 不支持的字段会导致配置校验失败。
-- 至少要配置并启用一个来源。
+- 固定查询覆盖 8 个主题的中英文版本，与 4 个轮换查询合计不超过 20 次。
+- 候选只根据 API 返回的标题、链接、站点、片段、时间和分数进行证据判定，不抓取搜索结果页或目标网页。
+- `first_party_domains` 用于识别事件主体；没有第一方证据时，只有两个独立 `trusted_domains` 共同支持的事件才可入选。
 
 每次修改来源后执行：
 
@@ -338,7 +335,7 @@ try {
 }
 ```
 
-检查 `source failed: <label>: <ExceptionType>` 日志。单个来源失败会被隔离，其他来源继续执行，因此任务显示绿色并不代表每个来源都返回了数据。提交修改前，应检查预演中的信息源质量、重复过滤、纯商业新闻过滤和原始链接有效性。
+任何搜索请求失败都会使整个 AI 情报工作流失败，不会跳过后继查询或转向其他来源。提交查询或证据域名变更前，应重新执行离线测试和手工 dry-run。
 
 <a id="reference"></a>
 
@@ -352,32 +349,29 @@ CLI 会先加载当前工作目录中的 `.env`，再读取进程环境变量；
 
 | 变量 | 是否必需 | 默认值 | 限制和作用 |
 | --- | --- | --- | --- |
+| `BAIDU_SEARCH_API_KEY` | 是 | 无 | 百度官方 Web Search API 凭据，与模型凭据分离。 |
 | `AI_API_KEY` | 是 | 无 | 非空的模型服务凭证，以 Bearer Token 形式发送。 |
-| `AI_BASE_URL` | 否 | `https://api.teamorouter.com/v1` | TeamoRouter OpenAI-compatible 基础地址，程序请求 `<base>/chat/completions`。 |
+| `AI_BASE_URL` | 否 | `https://api.teamorouter.cn/v1` | TeamoRouter OpenAI-compatible 基础地址，程序请求 `<base>/chat/completions`。 |
 | `AI_MODEL` | 是 | 无 | 唯一生产模型，必须显式填写 `gpt-5.6-luna`；不接受其他模型或自动回退模型。 |
 | `DINGTALK_WEBHOOK` | 是 | 无 | 非空 HTTPS URL，可以包含一个非空 `access_token` 查询参数。 |
 | `DINGTALK_ACCESS_TOKEN` | 条件必需 | 空 | Webhook 不包含有效 `access_token` 时必需；完整 Webhook 已提供令牌时忽略。 |
-| `WINDOW_HOURS` | 否 | `36` | 正整数，用于确定优先选择新内容的时间范围和日报页脚。 |
-| `FALLBACK_WINDOW_HOURS` | 否 | `168` | 不小于 `WINDOW_HOURS` 的正整数；新内容不足时扩展候选范围，默认最近 7 天。 |
+| `WINDOW_HOURS` | 否 | `36` | 正整数，百度搜索候选的允许时间窗口。 |
 | `MAX_ITEMS` | 否 | `8` | 1 到 8 之间的整数；模型返回超过该数量会校验失败。 |
-| `MODEL_CANDIDATE_LIMIT` | 否 | `12` | 每次初始模型调用最多包含的候选数，必须不小于 `MAX_ITEMS`。 |
-| `MODEL_RETRY_CANDIDATE_LIMIT` | 否 | `6` | 模型结构校验失败时的一次缩减重试候选数，必须小于初始上限。 |
 | `TIMEZONE` | 否 | `Asia/Shanghai` | 报告日期使用的 IANA 时区；未知时区会导致运行失败。 |
 | `DRY_RUN` | 否 | `false` | 不区分大小写的 `1`、`true`、`yes` 或 `on` 表示真，其他值表示假。预演模式只打印内容，不发送或保存状态。 |
 | `STATE_PATH` | 否 | `.state/sent.json` | 本地已发送状态 JSON 路径；保存时自动创建父目录。 |
 | `DELIVERY_STATE_PATH` | 否 | `.state/deliveries.json` | 已成功推送的北京时间日期状态，仅定时任务启用每日一次保护时使用。 |
 | `ENFORCE_DAILY_ONCE` | 否 | `false` | 定时任务设为 `true`；当天已经成功推送时记录 `status=already-sent` 并跳过。 |
-| `GITHUB_TOKEN` | 否 | 空 | 用于提升 GitHub Releases API 限额；Actions 会自动提供只读 Job Token。 |
 
 仓库中的 [`.env.example`](.env.example) 只包含变量名、安全默认值和空凭证字段。真实 `.env` 必须保持未跟踪状态。
 
 ### CLI
 
-项目提供两种等价运行方式，不支持其他命令行参数：
+项目提供以下 AI 情报运行方式，不支持其他命令行参数：
 
 ```powershell
 python -m ai_daily.cli
-ai-daily
+ai-digest
 ```
 
 退出码 `0` 表示运行成功，并对应以下一种状态：
@@ -385,7 +379,8 @@ ai-daily
 | 状态 | 含义 | 钉钉 | 状态文件 |
 | --- | --- | --- | --- |
 | `dry-run` | 已生成日报预演分片 | 不调用 | 不修改 |
-| `sent` | 钉钉已接受全部消息分片，包括固定状态通知 | 顺序发送 | 内容消息保存入选 URL；启用每日保护时记录当天成功 |
+| `sent` | 钉钉已接受全部 AI 情报分片 | 顺序发送 | 保存入选 URL 和事件；启用每日保护时记录当天成功 |
+| `empty` | 最近 36 小时没有合格候选 | 不调用 | 不修改 |
 | `already-sent` | 当天定时消息已成功发送，无需重复 | 不调用 | 不修改 |
 
 退出码 `1` 表示配置、分析、推送或文件处理失败。为避免泄漏凭证，涉及请求信息的错误会使用通用描述。
@@ -400,34 +395,19 @@ teamorouter-model-validation run --repetitions 3 --output .state/teamorouter-mod
 
 ### 来源行为
 
-| 来源 | 配置 | 采集行为 |
-| --- | --- | --- |
-| RSS/Atom | `rss[].name`、`rss[].url` | 读取带日期条目，清理 HTML，跳过无效或过期内容。 |
-| arXiv | `arxiv.categories`、`arxiv.max_results` | 按提交日期排序查询，并把链接规范化为 `https://arxiv.org/abs/...`。 |
-| Hugging Face Daily Papers | `enabled`、`limit_per_day` | 查询时间窗口覆盖的每个 UTC 日期，不需要认证令牌。 |
-| GitHub Releases | `github_repositories[]` | 每个仓库最多读取 10 个 Release，跳过草稿、预发布和过期内容。 |
+AI 情报每天执行 16 个固定查询和 4 个轮换查询，只调用百度官方 `POST /v2/ai_search/web_search` API。程序不解析百度结果页，不请求搜索结果所指的目标网页，也不把 RSS、arXiv、Hugging Face 或 GitHub Releases 用作摘要发现来源。
 
-最多同时执行 8 个来源操作。RSS、arXiv 和 GitHub Releases 使用共享的 `httpx` 请求逻辑：单次请求超时 20 秒；连接错误、超时、HTTP 429 和 5xx 最多尝试 3 次，重试间隔分别为 1 秒和 2 秒。
-
-Hugging Face 来源通过 `asyncio.to_thread` 调用 `HfApi.list_daily_papers`，程序没有为该调用额外添加相同的 20 秒超时和本地重试保证。任何永久失败的来源，包括 Hugging Face，都会记录来源标签和异常类型，然后被跳过。
-
-程序先采集最近 `FALLBACK_WINDOW_HOURS` 的内容，并依次尝试四种模式：
-
-1. `fresh`：最近 `WINDOW_HOURS`（默认 36 小时）内未发送且通过质量过滤的内容，最多 `MAX_ITEMS` 条。
-2. `extended`：最近 `FALLBACK_WINDOW_HOURS`（默认 168 小时）内未发送且通过质量过滤的内容，最多 `MAX_ITEMS` 条。
-3. `review`：最近 168 小时内已经发送过、但仍通过时间、技术主题、商业内容和重复过滤的内容，最多 3 条；消息会明确标记为“AI 近期技术回顾”。
-4. `notice`：7 天内没有可靠候选时，跳过模型并发送固定“今日状态”通知，不生成任何来源或技术事实。
-
-每个内容模式都会规范化 URL、移除跟踪参数和片段、保留同一 URL 的最新版本，并使用 0.92 相似度阈值删除近似重复标题。模型只能从最终候选中选择证据链接；为避免单次提示词过大，初始模型调用只使用最新的 `MODEL_CANDIDATE_LIMIT` 条候选。
+返回的线索会先按 36 小时窗口、30 天 URL 历史、7 天事件历史、每站最多 3 条和证据等级处理，最多向模型提交 40 条。搜索数据始终视为不可信输入，模型返回的来源和 URL 由程序重新绑定到本次候选。
 
 ### GitHub Actions 工作流
 
 | 文件 | 显示名称 | 触发方式 | 作用 |
 | --- | --- | --- | --- |
 | [`.github/workflows/test.yml`](.github/workflows/test.yml) | `Test` | Push、Pull Request | 安装 Python 3.12 依赖并运行离线测试。 |
-| [`.github/workflows/daily.yml`](.github/workflows/daily.yml) | `Daily DingTalk Digest` | 每日 cron、手动触发 | 恢复状态、运行日报，并在非预演成功后保存状态。 |
+| [`.github/workflows/daily.yml`](.github/workflows/daily.yml) | `AI 情报摘要` | 08:30 cron、手动触发 | 调用百度搜索与唯一模型，预演不发送或写状态。 |
+| [`.github/workflows/github-trends.yml`](.github/workflows/github-trends.yml) | `GitHub AI 趋势快照` | 08:45 cron、手动触发 | 使用 GitHub 官方 API 维护独立趋势基线。 |
 
-两个工作流的仓库内容权限都是只读，并且第三方 Action 都固定到完整的提交 SHA。每日工作流的手动输入参数为布尔值 `dry_run`，默认值是 `true`。
+工作流的仓库内容权限都是只读，并且第三方 Action 都固定到完整的提交 SHA。AI 情报工作流的手动输入参数为布尔值 `dry_run`，默认值是 `true`。
 
 <a id="architecture-security"></a>
 
@@ -436,13 +416,13 @@ Hugging Face 来源通过 `asyncio.to_thread` 调用 `HfApi.list_daily_papers`�
 ### 数据流程
 
 ```text
-sources.yaml + 环境变量
+sources.yaml + 独立搜索/模型凭据
              |
              v
- RSS / arXiv / Hugging Face / GitHub Releases
+百度官方 Web Search API（最多 20 次）
              |
              v
-规范化 -> 时间过滤 -> 已发送过滤 -> 商业内容过滤 -> 去重
+时间/站点/URL/事件去重 -> 证据分级 -> 最多 40 条
              |
              v
 兼容 OpenAI 的模型 -> 数据结构校验 + 证据 URL 校验
@@ -463,10 +443,10 @@ sources.yaml + 环境变量
 
 - `.env` 和 `.state/` 已被 Git 忽略。
 - GitHub Secrets 只进入 CLI 运行步骤，不会传给依赖安装或缓存步骤。
-- 工作流 Job Token 只有仓库内容只读权限，仅用于 GitHub Releases 请求。
+- 两个工作流的 Job Token 都只有仓库内容只读权限；AI 情报运行步骤不读取 GitHub Token。
 - 模型和钉钉凭证使用支持隐藏值的配置类型。
 - HTTP 依赖日志被限制在 warning 及以上级别。
-- 来源错误只记录配置标签和异常类名。
+- 百度搜索错误只记录安全的异常类名和状态，不记录响应正文。
 - 模型和钉钉错误不会输出响应正文、请求 URL、Webhook 查询参数或上游错误消息。
 - 已发送状态只保存 URL 哈希和时间戳，不保存完整 URL、消息正文或凭证。
 - 预演模式不会创建钉钉发送器，也不会更新状态。
@@ -513,23 +493,17 @@ git status --short
 - 返回值包含 `overview`、1 到 8 个有效 `items` 和 2 到 3 个 `trends`。
 - 每个条目 URL 经过规范化后都能与候选证据中的 URL 精确对应。
 
-不要绕过校验。程序会以更小候选集自动重试一次；若仍然无效，则改发模型服务状态通知。应修正接口地址、模型或提示词兼容性，再重新运行预演。
+不要绕过校验。模型输出无效时工作流失败，钉钉保持静默，也不写入成功状态。应修正接口地址、模型或提示词兼容性，再重新运行预演。
 
 ### HTTP 401
 
-模型接口返回 401 或 403 时不会重试模型请求，日报会发送模型服务状态通知。401 通常表示 `AI_API_KEY`、`AI_BASE_URL` 或服务商授权不正确；403 还可能表示额度、模型权限或服务商访问限制。来源返回 401 时会记录 `source failed`，其他来源仍继续执行，应检查对应 Feed 或 GitHub 访问权限。钉钉 HTTP 授权失败会显示通用错误 `DingTalk delivery failed`。
+模型接口返回 401 或 403 时不会重试模型请求，工作流失败且钉钉保持静默。401 通常表示 `AI_API_KEY`、`AI_BASE_URL` 或服务商授权不正确；403 还可能表示额度、模型权限或服务商访问限制。百度搜索返回 401/403 时应检查 `BAIDU_SEARCH_API_KEY` 和 Web Search 权限。钉钉 HTTP 授权失败会显示通用错误 `DingTalk delivery failed`。
 
 请通过 `.env` 或仓库 Secret 的隐藏输入重新填写凭证，不要打印凭证。疑似泄漏时应轮换密钥，不要把密钥粘贴到 Issue 或日志中。
 
 ### HTTP 429 或 5xx
 
-使用 `httpx` 的请求路径会对临时错误最多尝试 3 次，并使用短暂间隔：
-
-- RSS、arXiv 和 GitHub Releases 的单次请求超时为 20 秒。
-- 模型分析超时为 180 秒。
-- 钉钉推送超时为 20 秒。
-
-模型持续失败会发送模型服务状态通知；钉钉持续失败会使任务失败；`httpx` 来源持续失败只会跳过该来源。Hugging Face 使用 `asyncio.to_thread` 调用 `HfApi.list_daily_papers`，没有应用相同的本地超时和重试策略，但失败仍会被隔离并跳过。HTTP 403、超时或模型 JSON 校验失败时，先检查模型服务商的额度、权限和可用模型。
+百度搜索请求的单次超时为 20 秒；限额、免费额度耗尽或服务端错误会使本期失败，不会切换搜索来源。模型分析对超时、连接错误、429 和 5xx 使用同一 `gpt-5.6-luna` 最多尝试 3 次，绝不切换模型；持续失败会使工作流失败且钉钉静默。钉钉推送超时为 20 秒，最多尝试 3 次；发送失败不写成功状态。
 
 ### 出现 `DingTalk rejected the message` 或非零 `errcode`
 
@@ -544,9 +518,9 @@ git status --short
 
 然后通过隐藏输入更新仓库 Secrets，先预演，再正式推送。
 
-### 收到“今日状态”通知
+### 出现 `status=empty`
 
-这表示最近 7 天内没有获取到通过质量过滤的可靠候选。程序没有调用模型生成未经来源支持的信息，而是向钉钉发送固定状态文字。只要钉钉接受消息，定时任务仍会返回 `status=sent` 并记录当天已经完成。可以检查 `collected`、`prepared`、`mode=notice`、来源失败日志和 `config/sources.yaml`；无需为了“有内容”而降低证据校验标准。
+这表示最近 36 小时没有获取到通过证据规则的合格候选。这是成功但静默的运行：程序不调用钉钉，不回放旧内容，也不记录当日成功状态。
 
 ### 出现 `status=already-sent`
 
@@ -554,7 +528,7 @@ git status --short
 
 ### 定时工作流延迟或没有出现
 
-GitHub cron 不是精确调度器，平台负载较高时可能延迟。确认 Actions 已启用，`daily.yml` 位于仓库默认分支，并且唯一 cron 是 `30 16 * * *`。不要把 cron 改成本地时间，因为 GitHub cron 使用 UTC。如果定时运行没有出现，需要及时推送时，可以手动预演后再启动正式任务。
+GitHub cron 不是精确调度器，平台负载较高时可能延迟。确认 Actions 已启用，`daily.yml` 位于仓库默认分支，并且唯一 cron 是 `30 0 * * *`。不要把 cron 改成本地时间，因为 GitHub cron 使用 UTC。如果定时运行没有出现，先手动触发 dry-run 并检查预览、退出状态与安全日志。
 
 ### 状态文件损坏或旧内容重复出现
 

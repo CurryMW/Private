@@ -93,8 +93,8 @@ def test_daily_workflow_has_schedule_and_safe_manual_default() -> None:
     workflow = _load_workflow("daily.yml")
     triggers = workflow["on"]
 
-    assert workflow["name"] == "钉钉 AI 技术日报"
-    assert triggers["schedule"] == [{"cron": "30 16 * * *"}]
+    assert workflow["name"] == "AI 情报摘要"
+    assert triggers["schedule"] == [{"cron": "30 0 * * *"}]
     dry_run = triggers["workflow_dispatch"]["inputs"]["dry_run"]
     assert dry_run["description"] == "只预览，不发送钉钉消息，也不保存状态"
     assert dry_run["type"] == "boolean"
@@ -106,7 +106,7 @@ def test_daily_workflow_has_read_only_permissions_and_concurrency() -> None:
 
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"] == {
-        "group": "dingtalk-ai-daily",
+        "group": "dingtalk-ai-digest",
         "cancel-in-progress": False,
     }
 
@@ -116,10 +116,10 @@ def test_daily_job_installs_runs_and_maps_secrets_safely() -> None:
     job = workflow["jobs"]["digest"]
 
     assert job["env"] == {
-        "AI_BASE_URL": "https://api.teamorouter.com/v1",
+        "AI_BASE_URL": "https://api.teamorouter.cn/v1",
         "AI_MODEL": "gpt-5.6-luna",
         "DRY_RUN": "${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}",
-        "STATE_PATH": "${{ github.event_name == 'schedule' && '.state/sent.json' || '.state/manual/sent.json' }}",
+        "STATE_PATH": ".state/sent.json",
         "DELIVERY_STATE_PATH": ".state/deliveries.json",
         "ENFORCE_DAILY_ONCE": "${{ github.event_name == 'schedule' && 'true' || 'false' }}",
     }
@@ -127,10 +127,10 @@ def test_daily_job_installs_runs_and_maps_secrets_safely() -> None:
     assert any(step.get("run") == 'python -m pip install -e ".[dev]"' for step in steps)
     cli_step = next(step for step in steps if step.get("run") == "python -m ai_daily.cli")
     assert cli_step["env"] == {
+        "BAIDU_SEARCH_API_KEY": "${{ secrets.BAIDU_SEARCH_API_KEY }}",
         "AI_API_KEY": "${{ secrets.AI_API_KEY }}",
         "DINGTALK_WEBHOOK": "${{ secrets.DINGTALK_WEBHOOK }}",
         "DINGTALK_ACCESS_TOKEN": "${{ secrets.DINGTALK_ACCESS_TOKEN }}",
-        "GITHUB_TOKEN": "${{ github.token }}",
     }
     assert all("env" not in step for step in steps if step is not cli_step)
 
@@ -143,10 +143,13 @@ def test_daily_state_cache_uses_unique_keys_and_only_saves_live_success() -> Non
     assert restore["with"] == {
         "path": ".state",
         "key": (
-            "dingtalk-ai-state-${{ runner.os }}-${{ github.run_id }}-"
+            "dingtalk-ai-digest-state-${{ runner.os }}-${{ github.run_id }}-"
             "${{ github.run_attempt }}"
         ),
-        "restore-keys": "dingtalk-ai-state-${{ runner.os }}-",
+        "restore-keys": (
+            "dingtalk-ai-digest-state-${{ runner.os }}-\n"
+            "dingtalk-ai-state-${{ runner.os }}-\n"
+        ),
     }
 
     save = _step_using(steps, "actions/cache/save")
@@ -157,10 +160,23 @@ def test_daily_state_cache_uses_unique_keys_and_only_saves_live_success() -> Non
     assert save["with"] == {
         "path": ".state",
         "key": (
-            "dingtalk-ai-state-${{ runner.os }}-${{ github.run_id }}-"
+            "dingtalk-ai-digest-state-${{ runner.os }}-${{ github.run_id }}-"
             "${{ github.run_attempt }}"
         ),
     }
+
+
+def test_daily_workflow_uses_baidu_as_its_only_discovery_source() -> None:
+    source_config = yaml.safe_load(
+        (ROOT / "config" / "sources.yaml").read_text(encoding="utf-8")
+    )
+
+    assert set(source_config) == {"baidu_search"}
+    search = source_config["baidu_search"]
+    assert len(search["fixed_queries"]) == 16
+    assert len(search["rotating_queries"]) >= 4
+    assert "baidu.com" not in search["first_party_domains"]
+    assert "cloud.baidu.com" in search["first_party_domains"]
 
 
 def test_pinned_actions_keep_inline_version_comments() -> None:

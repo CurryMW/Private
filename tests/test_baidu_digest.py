@@ -1353,6 +1353,192 @@ async def test_ai_digest_entry_requires_a_separate_baidu_search_key(tmp_path) ->
 
 
 @pytest.mark.asyncio
+async def test_ai_digest_entry_sends_only_a_complete_report_then_records_success(
+    tmp_path,
+) -> None:
+    requests: list[httpx.Request] = []
+    sent_store = MemoryStore(SentState())
+    delivery_store = MemoryStore(DeliveryState())
+
+    class SenderSpy:
+        def __init__(self) -> None:
+            self.messages: list[tuple[list[str], str]] = []
+
+        async def send(self, parts, title) -> None:
+            self.messages.append((list(parts), title))
+
+    sender = SenderSpy()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.host == "qianfan.baidubce.com":
+            references = []
+            if sum(
+                queued.url.host == "qianfan.baidubce.com"
+                for queued in requests
+            ) == 1:
+                references = [
+                    {
+                        "type": "web",
+                        "title": "研究机构发布新推理模型",
+                        "url": RESULT_URL,
+                        "website": "Research Lab",
+                        "content": "官方发布 AI 推理模型并说明开放能力。",
+                        "date": "2026-07-18 08:00:00",
+                    }
+                ]
+            return httpx.Response(200, json={"references": references})
+        if request.url.host == "model.example":
+            return model_response()
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    application = AIDigestApplication(
+        baidu_settings(tmp_path).model_copy(
+            update={"dry_run": False, "enforce_daily_once": True}
+        ),
+        SourceConfig(baidu_search=complete_search_config()),
+        runtime=AIDigestRuntime(
+            clock=lambda: NOW,
+            http_client_factory=client_factory(handler),
+            sent_state_store=sent_store,
+            delivery_state_store=delivery_store,
+            sender_factory=lambda client, settings: sender,
+        ),
+    )
+
+    result = await application.run()
+
+    assert result.status is RunStatus.SENT
+    assert result.candidate_count == 1
+    assert result.selected_count == 1
+    assert result.part_count == 1
+    assert len(sender.messages) == 1
+    assert sender.messages[0][1] == "AI 情报摘要｜2026-07-18"
+    assert sent_store.value.is_sent(RESULT_URL)
+    assert len(sent_store.value.events) == 1
+    assert len(sent_store.saved) == 1
+    assert delivery_store.value.is_delivered(NOW.date())
+    assert len(delivery_store.saved) == 1
+
+
+@pytest.mark.asyncio
+async def test_ai_digest_entry_keeps_empty_live_run_silent_and_stateless(
+    tmp_path,
+) -> None:
+    sent_store = MemoryStore(SentState())
+    delivery_store = MemoryStore(DeliveryState())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"references": []})
+
+    application = AIDigestApplication(
+        baidu_settings(tmp_path).model_copy(update={"dry_run": False}),
+        SourceConfig(baidu_search=complete_search_config()),
+        runtime=AIDigestRuntime(
+            clock=lambda: NOW,
+            http_client_factory=client_factory(handler),
+            sent_state_store=sent_store,
+            delivery_state_store=delivery_store,
+            sender_factory=lambda client, settings: (_ for _ in ()).throw(
+                AssertionError("empty result constructed DingTalk sender")
+            ),
+        ),
+    )
+
+    result = await application.run()
+
+    assert result.status is RunStatus.EMPTY
+    assert sent_store.saved == []
+    assert delivery_store.saved == []
+
+
+@pytest.mark.asyncio
+async def test_ai_digest_entry_does_not_record_state_when_delivery_fails(
+    tmp_path,
+) -> None:
+    search_calls = 0
+    sent_store = MemoryStore(SentState())
+    delivery_store = MemoryStore(DeliveryState())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal search_calls
+        if request.url.host == "qianfan.baidubce.com":
+            search_calls += 1
+            references = []
+            if search_calls == 1:
+                references = [
+                    {
+                        "type": "web",
+                        "title": "研究机构发布新推理模型",
+                        "url": RESULT_URL,
+                        "website": "Research Lab",
+                        "content": "官方发布 AI 推理模型并说明开放能力。",
+                        "date": "2026-07-18 08:00:00",
+                    }
+                ]
+            return httpx.Response(200, json={"references": references})
+        if request.url.host == "model.example":
+            return model_response()
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    class FailingSender:
+        async def send(self, parts, title) -> None:
+            raise RuntimeError("simulated delivery failure")
+
+    application = AIDigestApplication(
+        baidu_settings(tmp_path).model_copy(update={"dry_run": False}),
+        SourceConfig(baidu_search=complete_search_config()),
+        runtime=AIDigestRuntime(
+            clock=lambda: NOW,
+            http_client_factory=client_factory(handler),
+            sent_state_store=sent_store,
+            delivery_state_store=delivery_store,
+            sender_factory=lambda client, settings: FailingSender(),
+        ),
+    )
+
+    result = await application.run()
+
+    assert result.status is RunStatus.FAILED
+    assert result.failure_type == "RuntimeError"
+    assert sent_store.saved == []
+    assert delivery_store.saved == []
+
+
+@pytest.mark.asyncio
+async def test_ai_digest_entry_rejects_corrupt_existing_url_history_before_search(
+    tmp_path,
+) -> None:
+    state_path = tmp_path / "sent.json"
+    state_path.write_text("not-json", encoding="utf-8")
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"references": []})
+
+    application = AIDigestApplication(
+        baidu_settings(tmp_path).model_copy(update={"dry_run": False}),
+        SourceConfig(baidu_search=complete_search_config()),
+        runtime=AIDigestRuntime(
+            clock=lambda: NOW,
+            http_client_factory=client_factory(handler),
+            sent_state_store=SentStateFileStore(state_path),
+            delivery_state_store=MemoryStore(DeliveryState()),
+            sender_factory=lambda client, settings: (_ for _ in ()).throw(
+                AssertionError("invalid history constructed DingTalk sender")
+            ),
+        ),
+    )
+
+    result = await application.run()
+
+    assert result.status is RunStatus.FAILED
+    assert result.failure_type == "ValueError"
+    assert requests == []
+
+
+@pytest.mark.asyncio
 async def test_baidu_search_contract_ignores_unsafe_or_incomplete_references() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

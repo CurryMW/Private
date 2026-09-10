@@ -112,11 +112,6 @@ class AIDigestApplication:
             raise ValueError("now must be timezone-aware")
         run_at = run_at.astimezone(UTC)
         report_date = run_at.astimezone(ZoneInfo(settings.timezone)).date()
-        if source_config.baidu_search is not None:
-            return await self._run_baidu_preview(
-                run_at, report_date, source_config.baidu_search
-            )
-
         delivery_state = DeliveryState()
         if settings.enforce_daily_once:
             delivery_state = runtime.delivery_state_store.load()
@@ -128,6 +123,14 @@ class AIDigestApplication:
                     selected_count=0,
                     part_count=0,
                 )
+
+        if source_config.baidu_search is not None:
+            return await self._run_baidu_digest(
+                run_at,
+                report_date,
+                source_config.baidu_search,
+                delivery_state,
+            )
 
         collection_cutoff = run_at - timedelta(hours=settings.fallback_window_hours)
         sent_state = runtime.sent_state_store.load()
@@ -245,18 +248,18 @@ class AIDigestApplication:
             part_count=len(parts),
         )
 
-    async def _run_baidu_preview(
+    async def _run_baidu_digest(
         self,
         run_at: datetime,
         report_date: date,
         search_config: BaiduSearchConfig,
+        delivery_state: DeliveryState,
     ) -> RunResult:
         settings = self._settings
-        if not settings.dry_run:
-            raise BaiduSearchError("Baidu search tracer requires dry-run mode")
         search_key = settings.baidu_search_api_key
         if search_key is None or not search_key.get_secret_value().strip():
             raise BaiduSearchError("BAIDU_SEARCH_API_KEY is required")
+        sent_state = self._runtime.sent_state_store.load()
 
         async with self._runtime.http_client_factory() as client:
             search = BaiduSearchClient(
@@ -271,7 +274,7 @@ class AIDigestApplication:
                 leads,
                 now=run_at,
                 window_hours=settings.window_hours,
-                sent_state=self._runtime.sent_state_store.load(),
+                sent_state=sent_state,
                 search_config=search_config,
             )
             logger.info("collected=%d", len(candidates))
@@ -297,11 +300,39 @@ class AIDigestApplication:
                 evidence_candidates=candidates,
                 evidence_timezone=settings.timezone,
             )
-            return self._preview_result(
-                parts,
-                candidate_count=len(candidates),
-                selected_count=len(digest.items),
+            if settings.dry_run:
+                return self._preview_result(
+                    parts,
+                    candidate_count=len(candidates),
+                    selected_count=len(digest.items),
+                )
+
+            title = f"AI 情报摘要｜{report_date.isoformat()}"
+            await self._runtime.sender_factory(client, settings).send(parts, title)
+
+        selected_urls = [str(item.url) for item in digest.items]
+        sent_state.mark_sent(selected_urls, run_at)
+        candidates_by_url = {
+            str(candidate.url): candidate for candidate in candidates
+        }
+        for selected_url in selected_urls:
+            candidate = candidates_by_url[selected_url]
+            sent_state.record_event(
+                candidate.title,
+                candidate.summary,
+                run_at,
             )
+        self._runtime.sent_state_store.save(sent_state)
+        if settings.enforce_daily_once:
+            delivery_state.mark_delivered(report_date, run_at)
+            self._runtime.delivery_state_store.save(delivery_state)
+        logger.info("status=sent")
+        return RunResult(
+            status=RunStatus.SENT,
+            candidate_count=len(candidates),
+            selected_count=len(digest.items),
+            part_count=len(parts),
+        )
 
     @staticmethod
     def _preview_result(
