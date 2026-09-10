@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import httpx
@@ -21,6 +21,7 @@ class GitHubTrendsRunResult:
     repository_count: int
     part_count: int
     failure_type: str | None = None
+    _failure: Exception | None = field(default=None, compare=False, repr=False)
 
     @classmethod
     def failed(cls, error: Exception) -> "GitHubTrendsRunResult":
@@ -29,6 +30,7 @@ class GitHubTrendsRunResult:
             repository_count=0,
             part_count=0,
             failure_type=type(error).__name__,
+            _failure=error,
         )
 
 
@@ -94,6 +96,12 @@ class GitHubTrendsApplication:
                 preparation = await self._prepare_report(context)
                 report = preparation.report
                 if report is None:
+                    if self._runtime.dry_run:
+                        return GitHubTrendsRunResult(
+                            status=RunStatus.PREVIEW,
+                            repository_count=preparation.repository_count,
+                            part_count=0,
+                        )
                     self._runtime.state_store.save(preparation.next_state)
                     return GitHubTrendsRunResult(
                         status=preparation.no_report_status,

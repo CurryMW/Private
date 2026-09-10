@@ -67,6 +67,16 @@ class GitHubTrendsState(BaseModel):
     schema_version: Literal[1] = CURRENT_SCHEMA_VERSION
     baseline: GitHubCandidateSnapshot | None = None
     latest: GitHubCandidateSnapshot | None = None
+    last_successful_report_at: datetime | None = None
+
+    @field_validator("last_successful_report_at")
+    @classmethod
+    def validate_last_successful_report_at(
+        cls, timestamp: datetime | None
+    ) -> datetime | None:
+        if timestamp is not None:
+            require_aware_timestamp(timestamp)
+        return timestamp
 
     @property
     def baseline_at(self) -> datetime | None:

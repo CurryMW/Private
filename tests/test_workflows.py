@@ -179,19 +179,34 @@ def test_pinned_actions_keep_inline_version_comments() -> None:
 
 def test_github_trends_snapshot_workflow_is_independent_and_cached() -> None:
     workflow = _load_workflow("github-trends.yml")
+    daily_workflow = _load_workflow("daily.yml")
 
-    assert workflow["name"] == "GitHub AI 趋势快照"
+    assert workflow["name"] == "GitHub AI 趋势报告"
     assert workflow["on"]["schedule"] == [{"cron": "45 0 * * *"}]
-    assert "workflow_dispatch" in workflow["on"]
+    assert "*/3" not in workflow["on"]["schedule"][0]["cron"]
+    dry_run = workflow["on"]["workflow_dispatch"]["inputs"]["dry_run"]
+    assert dry_run == {
+        "description": "只预览，不发送钉钉消息，也不保存趋势状态",
+        "required": False,
+        "type": "boolean",
+        "default": True,
+    }
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["concurrency"] == {
         "group": "dingtalk-github-trends",
         "cancel-in-progress": False,
     }
+    assert (
+        workflow["concurrency"]["group"]
+        != daily_workflow["concurrency"]["group"]
+    )
 
-    job = workflow["jobs"]["snapshot"]
+    job = workflow["jobs"]["report"]
     assert job["env"] == {
-        "GITHUB_TRENDS_STATE_PATH": ".state/github-trends/baseline.json"
+        "AI_BASE_URL": "https://api.teamorouter.cn/v1",
+        "AI_MODEL": "gpt-5.6-luna",
+        "DRY_RUN": "${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}",
+        "GITHUB_TRENDS_STATE_PATH": ".state/github-trends/baseline.json",
     }
     steps = job["steps"]
     assert [_step_identity(step) for step in steps] == [
@@ -219,7 +234,13 @@ def test_github_trends_snapshot_workflow_is_independent_and_cached() -> None:
         ),
         "restore-keys": "dingtalk-github-trends-state-${{ runner.os }}-",
     }
-    assert save["if"] == "success()"
+    daily_restore = _step_using(
+        _steps(daily_workflow, "digest"), "actions/cache/restore"
+    )
+    assert restore["with"]["restore-keys"] != daily_restore["with"]["restore-keys"]
+    assert save["if"] == (
+        "success() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)"
+    )
     assert save["with"] == {
         "path": ".state/github-trends",
         "key": (
@@ -233,5 +254,10 @@ def test_github_trends_snapshot_workflow_is_independent_and_cached() -> None:
         for step in steps
         if step.get("run") == "python -m ai_daily.github_trends_cli"
     )
-    assert command["env"] == {"GITHUB_TOKEN": "${{ github.token }}"}
+    assert command["env"] == {
+        "AI_API_KEY": "${{ secrets.AI_API_KEY }}",
+        "DINGTALK_WEBHOOK": "${{ secrets.DINGTALK_WEBHOOK }}",
+        "DINGTALK_ACCESS_TOKEN": "${{ secrets.DINGTALK_ACCESS_TOKEN }}",
+        "GITHUB_TOKEN": "${{ github.token }}",
+    }
     assert all("env" not in step for step in steps if step is not command)

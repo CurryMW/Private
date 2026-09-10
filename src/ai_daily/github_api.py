@@ -31,6 +31,7 @@ RECENT_ACTIVITY_DAYS = 180
 MINIMUM_DESCRIPTION_LENGTH = 24
 MINIMUM_README_BYTES = 400
 README_CHECK_CONCURRENCY = 8
+MAX_ATTEMPTS = 3
 AI_REPOSITORY_SEARCH_QUERY = (
     "ai OR llm OR agent OR inference OR machine-learning "
     "in:name,description,topics"
@@ -157,21 +158,18 @@ class GitHubRepositorySearchClient:
         page: int,
         headers: dict[str, str],
     ) -> tuple[int, list[_RepositoryPayload]]:
-        try:
-            response = await self._client.get(
-                GITHUB_REPOSITORY_SEARCH_ENDPOINT,
-                params={
-                    "q": AI_REPOSITORY_SEARCH_QUERY,
-                    "sort": "updated",
-                    "order": "desc",
-                    "per_page": SEARCH_PAGE_SIZE,
-                    "page": page,
-                },
-                headers=headers,
-                timeout=20.0,
-            )
-        except httpx.RequestError:
-            raise GitHubAPIError("GitHub search request failed") from None
+        response = await self._get_with_retry(
+            GITHUB_REPOSITORY_SEARCH_ENDPOINT,
+            params={
+                "q": AI_REPOSITORY_SEARCH_QUERY,
+                "sort": "updated",
+                "order": "desc",
+                "per_page": SEARCH_PAGE_SIZE,
+                "page": page,
+            },
+            headers=headers,
+            error_label="search",
+        )
         if not response.is_success:
             raise GitHubAPIError(
                 f"GitHub search request failed with HTTP {response.status_code}"
@@ -215,14 +213,11 @@ class GitHubRepositorySearchClient:
         headers: dict[str, str],
     ) -> _ReadmePayload | None:
         repository_path = quote(repository.full_name, safe="/")
-        try:
-            response = await self._client.get(
-                f"https://api.github.com/repos/{repository_path}/readme",
-                headers=headers,
-                timeout=20.0,
-            )
-        except httpx.RequestError:
-            raise GitHubAPIError("GitHub README request failed") from None
+        response = await self._get_with_retry(
+            f"https://api.github.com/repos/{repository_path}/readme",
+            headers=headers,
+            error_label="README",
+        )
         if response.status_code == 404:
             return None
         if not response.is_success:
@@ -233,6 +228,42 @@ class GitHubRepositorySearchClient:
             return _ReadmePayload.model_validate(response.json())
         except (ValueError, ValidationError):
             raise GitHubAPIError("GitHub README response is invalid") from None
+
+    async def _get_with_retry(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        error_label: str,
+        params: dict[str, str | int] | None = None,
+    ) -> httpx.Response:
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                response = await self._client.get(
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=20.0,
+                )
+            except (httpx.ConnectError, httpx.TimeoutException):
+                if attempt == MAX_ATTEMPTS - 1:
+                    raise GitHubAPIError(
+                        f"GitHub {error_label} request failed"
+                    ) from None
+                await asyncio.sleep(attempt + 1)
+                continue
+            except httpx.RequestError:
+                raise GitHubAPIError(
+                    f"GitHub {error_label} request failed"
+                ) from None
+
+            if response.status_code == 429 or 500 <= response.status_code < 600:
+                if attempt < MAX_ATTEMPTS - 1:
+                    await asyncio.sleep(attempt + 1)
+                    continue
+            return response
+
+        raise AssertionError("GitHub request retry loop exhausted")
 
     @staticmethod
     def _is_eligible(repository: _RepositoryPayload, sampled_at: datetime) -> bool:
