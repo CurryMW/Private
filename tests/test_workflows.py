@@ -175,3 +175,63 @@ def test_pinned_actions_keep_inline_version_comments() -> None:
 
     daily = (WORKFLOWS / "daily.yml").read_text(encoding="utf-8")
     assert daily.count(f"@{ACTION_PINS['actions/cache']} # v5") == 2
+
+
+def test_github_trends_snapshot_workflow_is_independent_and_cached() -> None:
+    workflow = _load_workflow("github-trends.yml")
+
+    assert workflow["name"] == "GitHub AI 趋势快照"
+    assert workflow["on"]["schedule"] == [{"cron": "45 0 * * *"}]
+    assert "workflow_dispatch" in workflow["on"]
+    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["concurrency"] == {
+        "group": "dingtalk-github-trends",
+        "cancel-in-progress": False,
+    }
+
+    job = workflow["jobs"]["snapshot"]
+    assert job["env"] == {
+        "GITHUB_TRENDS_STATE_PATH": ".state/github-trends/baseline.json"
+    }
+    steps = job["steps"]
+    assert [_step_identity(step) for step in steps] == [
+        "actions/checkout",
+        "actions/setup-python",
+        'python -m pip install -e ".[dev]"',
+        "actions/cache/restore",
+        "python -m ai_daily.github_trends_cli",
+        "actions/cache/save",
+    ]
+    for action in ("actions/checkout", "actions/setup-python"):
+        _assert_action_is_pinned(_step_using(steps, action), action)
+    setup = _step_using(steps, "actions/setup-python")
+    assert setup["with"] == {"python-version": "3.12", "cache": "pip"}
+
+    restore = _step_using(steps, "actions/cache/restore")
+    save = _step_using(steps, "actions/cache/save")
+    _assert_action_is_pinned(restore, "actions/cache/restore")
+    _assert_action_is_pinned(save, "actions/cache/save")
+    assert restore["with"] == {
+        "path": ".state/github-trends",
+        "key": (
+            "dingtalk-github-trends-state-${{ runner.os }}-${{ github.run_id }}-"
+            "${{ github.run_attempt }}"
+        ),
+        "restore-keys": "dingtalk-github-trends-state-${{ runner.os }}-",
+    }
+    assert save["if"] == "success()"
+    assert save["with"] == {
+        "path": ".state/github-trends",
+        "key": (
+            "dingtalk-github-trends-state-${{ runner.os }}-${{ github.run_id }}-"
+            "${{ github.run_attempt }}"
+        ),
+    }
+
+    command = next(
+        step
+        for step in steps
+        if step.get("run") == "python -m ai_daily.github_trends_cli"
+    )
+    assert command["env"] == {"GITHUB_TOKEN": "${{ github.token }}"}
+    assert all("env" not in step for step in steps if step is not command)

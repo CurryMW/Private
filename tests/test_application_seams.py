@@ -18,6 +18,7 @@ from ai_daily.github_trends_app import (
     GitHubTrendsRuntime,
     GitHubTrendsState,
 )
+from ai_daily.github_trends_state import GitHubCandidateSnapshot
 from ai_daily.state import SentState
 
 
@@ -192,7 +193,9 @@ async def test_ai_digest_entry_returns_an_explicit_failed_result(tmp_path) -> No
 @pytest.mark.asyncio
 async def test_github_trends_entry_uses_its_own_runtime_and_state() -> None:
     initial_state = GitHubTrendsState()
-    updated_state = GitHubTrendsState(baseline_at=NOW)
+    updated_state = GitHubTrendsState(
+        latest=GitHubCandidateSnapshot(sampled_at=NOW)
+    )
     github_state = MemoryStore(initial_state)
     sender = SenderSpy()
     observed = {}
@@ -243,7 +246,9 @@ async def test_github_trends_entry_uses_its_own_runtime_and_state() -> None:
 @pytest.mark.asyncio
 async def test_github_trends_entry_produces_empty_and_saves_its_baseline() -> None:
     initial_state = GitHubTrendsState()
-    baseline = GitHubTrendsState(baseline_at=NOW)
+    baseline = GitHubTrendsState(
+        latest=GitHubCandidateSnapshot(sampled_at=NOW)
+    )
     github_state = MemoryStore(initial_state)
 
     async def prepare_empty(

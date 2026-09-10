@@ -21,6 +21,7 @@ dev = ["pytest>=8.4,<10", "pytest-asyncio>=1.0,<2", "respx>=0.22,<1"]
 
 [project.scripts]
 ai-daily = "ai_daily.cli:main"
+github-trends = "ai_daily.github_trends_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -16,6 +16,8 @@ class RunStatus(StrEnum):
     SENT = "sent"
     PREVIEW = "dry-run"
     EMPTY = "empty"
+    BASELINE_ESTABLISHED = "baseline-established"
+    SNAPSHOT_UPDATED = "snapshot-updated"
     ALREADY_PROCESSED = "already-sent"
     FAILED = "failed"
 

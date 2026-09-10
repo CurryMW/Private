@@ -12,6 +12,7 @@ from ai_daily.application import (
     RunStatus,
     StateStore,
 )
+from ai_daily.github_trends_state import GitHubTrendsState
 
 
 @dataclass(frozen=True)
@@ -32,11 +33,6 @@ class GitHubTrendsRunResult:
 
 
 @dataclass(frozen=True)
-class GitHubTrendsState:
-    baseline_at: datetime | None = None
-
-
-@dataclass(frozen=True)
 class GitHubTrendsReport:
     title: str
     parts: tuple[str, ...]
@@ -48,6 +44,7 @@ class GitHubTrendsPreparation:
     next_state: GitHubTrendsState
     report: GitHubTrendsReport | None
     repository_count: int
+    no_report_status: RunStatus = RunStatus.EMPTY
 
 
 @dataclass(frozen=True)
@@ -99,7 +96,7 @@ class GitHubTrendsApplication:
                 if report is None:
                     self._runtime.state_store.save(preparation.next_state)
                     return GitHubTrendsRunResult(
-                        status=RunStatus.EMPTY,
+                        status=preparation.no_report_status,
                         repository_count=preparation.repository_count,
                         part_count=0,
                     )
