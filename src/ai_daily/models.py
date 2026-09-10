@@ -105,3 +105,24 @@ class Digest(BaseModel):
     overview: str = Field(min_length=10, max_length=800)
     items: list[DigestItem] = Field(min_length=1, max_length=8)
     trends: list[str] = Field(min_length=2, max_length=3)
+
+
+class AnalyzedDigestItem(BaseModel):
+    """Model-authored fields; source identity is bound by the application."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    candidate_id: str = Field(min_length=12, max_length=64)
+    category: Category
+    summary: str = Field(min_length=10, max_length=600)
+    impact: str = Field(min_length=10, max_length=600)
+
+
+class AnalyzedDigest(BaseModel):
+    """Strict model response before candidate identities are resolved."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    overview: str = Field(min_length=10, max_length=800)
+    items: list[AnalyzedDigestItem] = Field(min_length=1, max_length=8)
+    trends: list[str] = Field(min_length=2, max_length=3)

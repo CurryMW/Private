@@ -116,8 +116,8 @@ def test_daily_job_installs_runs_and_maps_secrets_safely() -> None:
     job = workflow["jobs"]["digest"]
 
     assert job["env"] == {
-        "AI_BASE_URL": "https://apiclaude.cc/v1",
-        "AI_MODEL": "claude-sonnet-4-6",
+        "AI_BASE_URL": "https://api.teamorouter.com/v1",
+        "AI_MODEL": "gpt-5.6-luna",
         "DRY_RUN": "${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}",
         "STATE_PATH": "${{ github.event_name == 'schedule' && '.state/sent.json' || '.state/manual/sent.json' }}",
         "DELIVERY_STATE_PATH": ".state/deliveries.json",

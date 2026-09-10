@@ -8,14 +8,15 @@ from ai_daily.config import load_settings
 
 BASE_ENV = {
     "AI_API_KEY": "sk-test",
+    "AI_MODEL": "gpt-5.6-luna",
     "DINGTALK_WEBHOOK": "https://oapi.dingtalk.com/robot/send?access_token=test-token",
 }
 
 
 def test_load_settings_uses_approved_defaults() -> None:
     settings = load_settings(BASE_ENV)
-    assert settings.ai_base_url == "https://apiclaude.cc/v1"
-    assert settings.ai_model == "claude-sonnet-4-6"
+    assert settings.ai_base_url == "https://api.teamorouter.com/v1"
+    assert settings.ai_model == "gpt-5.6-luna"
     assert settings.window_hours == 36
     assert settings.fallback_window_hours == 168
     assert settings.model_candidate_limit == 12
@@ -58,6 +59,21 @@ def test_base_webhook_accepts_separate_access_token() -> None:
 def test_missing_ai_key_is_rejected() -> None:
     with pytest.raises(ValueError, match="AI_API_KEY"):
         load_settings({"DINGTALK_WEBHOOK": BASE_ENV["DINGTALK_WEBHOOK"]})
+
+
+def test_missing_model_selection_is_rejected() -> None:
+    with pytest.raises(ValueError, match="AI_MODEL"):
+        load_settings(BASE_ENV | {"AI_MODEL": ""})
+
+
+def test_any_model_other_than_the_selected_production_model_is_rejected() -> None:
+    with pytest.raises(ValueError, match="gpt-5.6-luna"):
+        load_settings(BASE_ENV | {"AI_MODEL": "unreviewed-model"})
+
+
+def test_model_base_url_requires_https() -> None:
+    with pytest.raises(ValueError, match="AI_BASE_URL"):
+        load_settings(BASE_ENV | {"AI_BASE_URL": "http://model.example/v2"})
 
 
 def test_fallback_window_must_cover_primary_window() -> None:

@@ -9,6 +9,7 @@ from ai_daily.application import DeliveryStateFileStore, SentStateFileStore
 from ai_daily.config import Settings, SourceConfig
 from ai_daily.delivery_state import DeliveryState
 from ai_daily.dingtalk import DingTalkError
+from ai_daily.filtering import candidate_id
 from ai_daily.github_trends_app import (
     GitHubTrendsApplication,
     GitHubTrendsContext,
@@ -61,6 +62,7 @@ def digest_settings(tmp_path) -> Settings:
     return Settings(
         ai_api_key="test-ai-key",
         ai_base_url="https://model.example/v1",
+        ai_model="gpt-5.6-luna",
         dingtalk_webhook=(
             "https://oapi.dingtalk.com/robot/send?access_token=test-token"
         ),
@@ -75,19 +77,24 @@ def model_response() -> httpx.Response:
         "overview": "今天的更新聚焦新的推理运行时及其工程价值。",
         "items": [
             {
-                "title": "Inference runtime v2.0",
+                "candidate_id": candidate_id(RELEASE_URL),
                 "category": "开源工具",
-                "source": "GitHub: example/project",
                 "summary": "项目发布了新的推理运行时，并提供了技术说明。",
                 "impact": "开发者可以据此评估新的部署能力与工程适用性。",
-                "url": RELEASE_URL,
             }
         ],
         "trends": ["推理部署工具持续演进", "开源工程能力受到关注"],
     }
     return httpx.Response(
         200,
-        json={"choices": [{"message": {"content": json.dumps(content)}}]},
+        json={
+            "choices": [{"message": {"content": json.dumps(content)}}],
+            "usage": {
+                "prompt_tokens": 800,
+                "completion_tokens": 200,
+                "total_tokens": 1000,
+            },
+        },
     )
 
 

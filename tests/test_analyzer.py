@@ -10,13 +10,15 @@ from ai_daily.config import Settings
 from ai_daily.models import Candidate, Digest
 
 
-ENDPOINT = "https://apiclaude.cc/v1/chat/completions"
+ENDPOINT = "https://model.example/v2/chat/completions"
 
 
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
         ai_api_key="sk-test",
+        ai_base_url="https://model.example/v2",
+        ai_model="gpt-5.6-luna",
         dingtalk_webhook=(
             "https://oapi.dingtalk.com/robot/send?access_token=test-token"
         ),
@@ -40,16 +42,13 @@ def candidates() -> list[Candidate]:
 
 def _item(
     *,
-    url: str = "https://example.com/model-release",
-    title: str = "新的推理模型正式发布",
+    candidate_id: str = "candidate-0001",
 ) -> dict[str, str]:
     return {
-        "title": title,
+        "candidate_id": candidate_id,
         "category": "模型发布",
-        "source": "Official Lab",
         "summary": "官方发布了新的推理模型并介绍核心技术细节。",
         "impact": "这为开发者评估推理能力和部署选择提供了新依据。",
-        "url": url,
     }
 
 
@@ -70,7 +69,7 @@ def _completion(content: str) -> httpx.Response:
             "id": "chatcmpl-test",
             "object": "chat.completion",
             "created": 1784334600,
-            "model": "claude-sonnet-4-6",
+            "model": "gpt-5.6-luna",
             "choices": [
                 {
                     "index": 0,
@@ -103,9 +102,10 @@ async def test_analyze_sends_chinese_openai_compatible_request_and_returns_diges
     assert digest.items[0].title == "新的推理模型正式发布"
     request = route.calls[0].request
     body = json.loads(request.content)
-    assert body["model"] == "claude-sonnet-4-6"
+    assert body["model"] == "gpt-5.6-luna"
     assert body["temperature"] == 0.2
     assert body["max_tokens"] == 3000
+    assert body["response_format"] == {"type": "json_object"}
     assert body["messages"][0]["role"] == "system"
     assert "你是严谨的 AI 技术编辑" in body["messages"][0]["content"]
     assert body["messages"][1]["role"] == "user"
@@ -116,6 +116,43 @@ async def test_analyze_sends_chinese_openai_compatible_request_and_returns_diges
     assert '"properties"' in user_message
     assert request.headers["Authorization"] == "Bearer sk-test"
     assert request.extensions["timeout"]["read"] == 180.0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_analyze_exposes_validated_usage_for_cost_evaluation(
+    settings: Settings, candidates: list[Candidate]
+) -> None:
+    respx.post(ENDPOINT).mock(
+        return_value=_completion(json.dumps(_digest_payload(), ensure_ascii=False))
+    )
+
+    async with httpx.AsyncClient() as client:
+        result = await Analyzer(client, settings).analyze_with_usage(candidates)
+
+    assert result.digest.items[0].title == candidates[0].title
+    assert result.usage.prompt_tokens == 500
+    assert result.usage.completion_tokens == 200
+    assert result.usage.total_tokens == 700
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_analyze_recognizes_an_explicit_model_refusal(
+    settings: Settings, candidates: list[Candidate]
+) -> None:
+    response = _completion("")
+    payload = response.json()
+    payload["choices"][0]["message"] = {
+        "role": "assistant",
+        "content": None,
+        "refusal": "cannot comply",
+    }
+    respx.post(ENDPOINT).mock(return_value=httpx.Response(200, json=payload))
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(AnalysisError, match="was refused"):
+            await Analyzer(client, settings).analyze(candidates)
 
 
 @pytest.mark.asyncio
@@ -144,7 +181,7 @@ async def test_analyze_rejects_a_ninth_item_without_retrying(
 
     monkeypatch.setattr("ai_daily.analyzer.asyncio.sleep", fake_sleep)
     payload = _digest_payload(
-        items=[_item(title=f"新的推理模型正式发布 {index}") for index in range(9)]
+        items=[_item(candidate_id=f"candidate-{index:04d}") for index in range(9)]
     )
     route = respx.post(ENDPOINT).mock(
         return_value=_completion(json.dumps(payload, ensure_ascii=False))
@@ -171,7 +208,7 @@ async def test_analyze_enforces_the_configured_maximum(
         }
     )
     payload = _digest_payload(
-        items=[_item(), _item(url="https://example.com/second-model")]
+        items=[_item(), _item(candidate_id="candidate-0002")]
     )
     respx.post(ENDPOINT).mock(
         return_value=_completion(json.dumps(payload, ensure_ascii=False))
@@ -218,7 +255,7 @@ async def test_analyze_prompts_for_and_enforces_per_run_maximum(
     ]
     payload = _digest_payload(
         items=[
-            _item(url=f"https://example.com/model-{index}", title=f"模型更新 {index}")
+            _item(candidate_id=f"candidate-{index:04d}")
             for index in range(1, 5)
         ]
     )
@@ -236,7 +273,7 @@ async def test_analyze_prompts_for_and_enforces_per_run_maximum(
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_analyze_rejects_url_outside_candidate_evidence_without_retrying(
+async def test_analyze_rejects_unknown_candidate_id_without_retrying(
     settings: Settings, candidates: list[Candidate], monkeypatch
 ) -> None:
     sleeps: list[int] = []
@@ -245,17 +282,32 @@ async def test_analyze_rejects_url_outside_candidate_evidence_without_retrying(
         sleeps.append(delay)
 
     monkeypatch.setattr("ai_daily.analyzer.asyncio.sleep", fake_sleep)
-    payload = _digest_payload(items=[_item(url="https://fabricated.example/story")])
+    payload = _digest_payload(items=[_item(candidate_id="fabricated-0001")])
     route = respx.post(ENDPOINT).mock(
         return_value=_completion(json.dumps(payload, ensure_ascii=False))
     )
 
     async with httpx.AsyncClient() as client:
-        with pytest.raises(AnalysisError, match="evidence"):
+        with pytest.raises(AnalysisError, match="unknown candidate id"):
             await Analyzer(client, settings).analyze(candidates)
 
     assert route.call_count == 1
     assert sleeps == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_analyze_rejects_duplicate_candidate_ids(
+    settings: Settings, candidates: list[Candidate]
+) -> None:
+    payload = _digest_payload(items=[_item(), _item()])
+    respx.post(ENDPOINT).mock(
+        return_value=_completion(json.dumps(payload, ensure_ascii=False))
+    )
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(AnalysisError, match="duplicate candidate id"):
+            await Analyzer(client, settings).analyze(candidates)
 
 
 @pytest.mark.asyncio
@@ -318,6 +370,9 @@ async def test_analyze_retries_transient_failures_at_most_three_attempts(
     assert digest.items[0].source == "Official Lab"
     assert route.call_count == 3
     assert sleeps == [1, 2]
+    assert {
+        json.loads(call.request.content)["model"] for call in route.calls
+    } == {"gpt-5.6-luna"}
 
 
 @pytest.mark.asyncio

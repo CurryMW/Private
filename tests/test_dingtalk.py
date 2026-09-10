@@ -31,6 +31,7 @@ def _settings(
 ) -> Settings:
     return Settings(
         ai_api_key="sk-test",
+        ai_model="gpt-5.6-luna",
         dingtalk_webhook=webhook,
         dingtalk_access_token=access_token,
     )

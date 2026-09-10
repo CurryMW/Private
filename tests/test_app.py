@@ -28,6 +28,7 @@ def settings(
 ) -> Settings:
     return Settings(
         ai_api_key="test-ai-key",
+        ai_model="gpt-5.6-luna",
         dingtalk_webhook=(
             "https://oapi.dingtalk.com/robot/send?access_token=test-token"
         ),

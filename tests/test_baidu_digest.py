@@ -11,6 +11,7 @@ from ai_daily.application import RunStatus, SentStateFileStore
 from ai_daily.baidu_search import BaiduSearchClient, BaiduSearchError
 from ai_daily.config import BaiduSearchConfig, Settings, SourceConfig
 from ai_daily.delivery_state import DeliveryState
+from ai_daily.filtering import candidate_id
 from ai_daily.state import SentState
 
 
@@ -42,6 +43,7 @@ def baidu_settings(tmp_path) -> Settings:
     return Settings(
         ai_api_key="test-ai-key",
         ai_base_url="https://model.example/v1",
+        ai_model="gpt-5.6-luna",
         baidu_search_api_key="test-search-key",
         dingtalk_webhook=(
             "https://oapi.dingtalk.com/robot/send?access_token=test-token"
@@ -57,23 +59,28 @@ def model_response() -> httpx.Response:
         "overview": "今天的更新聚焦新的推理模型及其开放能力。",
         "items": [
             {
-                "title": "模型不得改写这里显示的标题",
+                "candidate_id": candidate_id(RESULT_URL),
                 "category": "模型发布",
-                "source": "模型不得控制这里显示的来源",
                 "summary": (
                     "官方发布了新的推理模型，并说明了主要技术能力。"
                 ),
                 "impact": (
                     "开发者可以据此评估新的推理能力与部署选择。"
                 ),
-                "url": RESULT_URL,
             }
         ],
         "trends": ["推理能力继续演进", "模型开放方式受到关注"],
     }
     return httpx.Response(
         200,
-        json={"choices": [{"message": {"content": json.dumps(content)}}]},
+        json={
+            "choices": [{"message": {"content": json.dumps(content)}}],
+            "usage": {
+                "prompt_tokens": 800,
+                "completion_tokens": 200,
+                "total_tokens": 1000,
+            },
+        },
     )
 
 
@@ -82,12 +89,10 @@ def model_response_for(*urls: str) -> httpx.Response:
         "overview": "今天的更新聚焦可靠的 AI 模型与开发工具进展。",
         "items": [
             {
-                "title": f"模型生成标题 {index}",
+                "candidate_id": candidate_id(url),
                 "category": "模型发布",
-                "source": "模型生成来源",
                 "summary": f"候选材料说明了第 {index} 项 AI 技术更新。",
                 "impact": f"这项更新为第 {index} 类开发者提供了新的判断依据。",
-                "url": url,
             }
             for index, url in enumerate(urls, 1)
         ],
@@ -95,7 +100,14 @@ def model_response_for(*urls: str) -> httpx.Response:
     }
     return httpx.Response(
         200,
-        json={"choices": [{"message": {"content": json.dumps(content)}}]},
+        json={
+            "choices": [{"message": {"content": json.dumps(content)}}],
+            "usage": {
+                "prompt_tokens": 800,
+                "completion_tokens": 200,
+                "total_tokens": 1000,
+            },
+        },
     )
 
 
@@ -970,7 +982,7 @@ async def test_ai_digest_entry_rejects_three_updates_from_one_organization(
 
 
 @pytest.mark.asyncio
-async def test_ai_digest_entry_rejects_three_items_for_one_event(
+async def test_ai_digest_entry_rejects_duplicate_candidate_ids(
     tmp_path,
 ) -> None:
     search_calls = 0
@@ -1014,7 +1026,92 @@ async def test_ai_digest_entry_rejects_three_items_for_one_event(
 
     assert result.status is RunStatus.FAILED
     assert result.failure_type == "AnalysisError"
-    assert str(result._failure) == "analysis includes too many updates from one event"
+    assert str(result._failure) == "analysis contains duplicate candidate id"
+
+
+@pytest.mark.asyncio
+async def test_ai_digest_entry_rejects_an_unknown_model_candidate_id_without_sending(
+    tmp_path,
+) -> None:
+    search_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal search_calls
+        if request.url.host == "qianfan.baidubce.com":
+            search_calls += 1
+            references = []
+            if search_calls == 1:
+                references = [
+                    {
+                        "type": "web",
+                        "title": "研究机构发布新推理模型",
+                        "url": RESULT_URL,
+                        "website": "Research Lab",
+                        "content": "官方发布 AI 推理模型并说明开放能力。",
+                        "date": "2026-07-18 08:00:00",
+                    }
+                ]
+            return httpx.Response(200, json={"references": references})
+        if request.url.host == "model.example":
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "overview": "今天的更新聚焦新的推理模型及其开放能力。",
+                                        "items": [
+                                            {
+                                                "candidate_id": "unknown-candidate-id",
+                                                "category": "模型发布",
+                                                "summary": "官方发布了新的推理模型并说明技术能力。",
+                                                "impact": "开发者可以据此评估新的推理能力与部署选择。",
+                                            }
+                                        ],
+                                        "trends": [
+                                            "推理能力继续演进",
+                                            "模型开放方式受到关注",
+                                        ],
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            }
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 800,
+                        "completion_tokens": 200,
+                        "total_tokens": 1000,
+                    },
+                },
+            )
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    sent_store = MemoryStore(SentState())
+    delivery_store = MemoryStore(DeliveryState())
+    application = AIDigestApplication(
+        baidu_settings(tmp_path),
+        SourceConfig(baidu_search=complete_search_config()),
+        runtime=AIDigestRuntime(
+            clock=lambda: NOW,
+            http_client_factory=client_factory(handler),
+            sent_state_store=sent_store,
+            delivery_state_store=delivery_store,
+            sender_factory=lambda client, settings: (_ for _ in ()).throw(
+                AssertionError("invalid analysis constructed DingTalk sender")
+            ),
+        ),
+    )
+
+    result = await application.run()
+
+    assert result.status is RunStatus.FAILED
+    assert result.failure_type == "AnalysisError"
+    assert str(result._failure) == "analysis references unknown candidate id"
+    assert sent_store.saved == []
+    assert delivery_store.saved == []
 
 
 @pytest.mark.asyncio
@@ -1105,6 +1202,8 @@ async def test_ai_digest_entry_previews_one_baidu_search_query_safely(
         in model_request["messages"][1]["content"]
     )
     assert "tools" not in model_request
+    assert "test-search-key" not in json.dumps(model_request)
+    assert "test-ai-key" not in json.dumps(model_request)
     assert '"relevance_score": 0.94' in model_request["messages"][1]["content"]
     assert '"authority_score": 0.91' in model_request["messages"][1]["content"]
 
@@ -1118,6 +1217,52 @@ async def test_ai_digest_entry_previews_one_baidu_search_query_safely(
     assert f"[查看原文]({RESULT_URL})" in preview
     assert "百度可检索到的中英文 AI 公开信息" in preview
     assert "test-search-key" not in preview
+    assert sent_store.saved == []
+    assert delivery_store.saved == []
+
+
+@pytest.mark.asyncio
+async def test_ai_digest_entry_keeps_dingtalk_silent_after_model_rate_limit(
+    tmp_path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search_calls = 0
+
+    async def no_wait(delay: int) -> None:
+        return None
+
+    monkeypatch.setattr("ai_daily.analyzer.asyncio.sleep", no_wait)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal search_calls
+        if request.url.host == "qianfan.baidubce.com":
+            search_calls += 1
+            references = []
+            if search_calls == 1:
+                references = [
+                    {
+                        "type": "web",
+                        "title": "研究机构发布新推理模型",
+                        "url": RESULT_URL,
+                        "website": "Research Lab",
+                        "content": "官方发布 AI 推理模型并说明开放能力。",
+                        "date": "2026-07-18 08:00:00",
+                    }
+                ]
+            return httpx.Response(200, json={"references": references})
+        if request.url.host == "model.example":
+            return httpx.Response(429, text="private upstream response")
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    application, sent_store, delivery_store = baidu_application(tmp_path, handler)
+
+    result = await application.run()
+
+    assert result.status is RunStatus.FAILED
+    assert result.failure_type == "AnalysisError"
+    assert str(result._failure) == "AI analysis rate limited after 3 attempts"
+    assert capsys.readouterr().out == ""
     assert sent_store.saved == []
     assert delivery_store.saved == []
 

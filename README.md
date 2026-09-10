@@ -30,7 +30,7 @@
 - Windows PowerShell
 - Git
 - Python 3.12，其他 Python 版本不在当前支持范围内
-- 模型服务商提供的 API Key
+- TeamoRouter 模型服务的 API Key
 - 钉钉自定义机器人完整 Webhook，或者基础 Webhook 加 `access_token`
 
 凭证只应保存在被 Git 忽略的 `.env` 文件中。不要把凭证写入 `.env.example`、命令参数、Git 提交或截图。
@@ -52,6 +52,8 @@ Copy-Item .env.example .env
 
 ```dotenv
 AI_API_KEY=
+AI_BASE_URL=https://api.teamorouter.com/v1
+AI_MODEL=gpt-5.6-luna
 DINGTALK_WEBHOOK=
 DINGTALK_ACCESS_TOKEN=
 DRY_RUN=true
@@ -59,7 +61,9 @@ DRY_RUN=true
 
 在未纳入 Git 管理的 `.env` 中填写真实值：
 
-- `AI_API_KEY`：模型服务商提供的 API Key。
+- `AI_API_KEY`：TeamoRouter 模型服务提供的 API Key。
+- `AI_BASE_URL`：TeamoRouter OpenAI-compatible 基础地址。
+- `AI_MODEL`：唯一生产模型，必须显式填写 `gpt-5.6-luna`。
 - `DINGTALK_WEBHOOK`：完整的 HTTPS Webhook，或者不含令牌的基础 Webhook。
 - `DINGTALK_ACCESS_TOKEN`：如果完整 Webhook 已经包含 `access_token` 查询参数，可以留空；否则必须填写。
 
@@ -184,7 +188,7 @@ git status --short --branch
 
 | Secret 名称 | 是否必需 | 填写内容 |
 | --- | --- | --- |
-| `AI_API_KEY` | 是 | `https://apiclaude.cc` 服务生成的 API Key |
+| `AI_API_KEY` | 是 | TeamoRouter 模型服务的 API Key |
 | `DINGTALK_WEBHOOK` | 是 | 钉钉自定义机器人的完整 HTTPS Webhook，或基础 Webhook |
 | `DINGTALK_ACCESS_TOKEN` | 条件必需 | 完整 Webhook 不含 `access_token` 时填写；否则可以不创建 |
 
@@ -349,8 +353,8 @@ CLI 会先加载当前工作目录中的 `.env`，再读取进程环境变量；
 | 变量 | 是否必需 | 默认值 | 限制和作用 |
 | --- | --- | --- | --- |
 | `AI_API_KEY` | 是 | 无 | 非空的模型服务凭证，以 Bearer Token 形式发送。 |
-| `AI_BASE_URL` | 否 | `https://apiclaude.cc/v1` | 兼容 OpenAI 的基础地址，程序请求 `<base>/chat/completions`。 |
-| `AI_MODEL` | 否 | `claude-sonnet-4-6` | Chat Completions 请求使用的模型标识符。 |
+| `AI_BASE_URL` | 否 | `https://api.teamorouter.com/v1` | TeamoRouter OpenAI-compatible 基础地址，程序请求 `<base>/chat/completions`。 |
+| `AI_MODEL` | 是 | 无 | 唯一生产模型，必须显式填写 `gpt-5.6-luna`；不接受其他模型或自动回退模型。 |
 | `DINGTALK_WEBHOOK` | 是 | 无 | 非空 HTTPS URL，可以包含一个非空 `access_token` 查询参数。 |
 | `DINGTALK_ACCESS_TOKEN` | 条件必需 | 空 | Webhook 不包含有效 `access_token` 时必需；完整 Webhook 已提供令牌时忽略。 |
 | `WINDOW_HOURS` | 否 | `36` | 正整数，用于确定优先选择新内容的时间范围和日报页脚。 |
@@ -385,6 +389,14 @@ ai-daily
 | `already-sent` | 当天定时消息已成功发送，无需重复 | 不调用 | 不修改 |
 
 退出码 `1` 表示配置、分析、推送或文件处理失败。为避免泄漏凭证，涉及请求信息的错误会使用通用描述。
+
+使用同一脱敏固定样本验证已由订阅者选定的唯一生产模型：
+
+```powershell
+teamorouter-model-validation run --repetitions 3 --output .state/teamorouter-model-validation.json
+```
+
+验证命令先通过实时 `GET /v1/models` 确认 `gpt-5.6-luna` 可用，再用完全相同的固定样本调用三次；不会调用或切换到其他模型。结果文件只包含脱敏样本输出、安全错误分类、token usage 和成本估算，不包含密钥。缺少 `AI_API_KEY` 时退出码为 `2` 且不生成结果文件。自动检查通过只会标记为待人工评审；真实结果、统一人工评分、成本证据和验证门槛见 [`docs/model-evaluation/2026-09-10-teamorouter-production-model.md`](docs/model-evaluation/2026-09-10-teamorouter-production-model.md)。
 
 ### 来源行为
 
@@ -443,7 +455,7 @@ sources.yaml + 环境变量
              +--> 正式运行：发送全部分片 -> 保存 URL 哈希状态 -> 缓存状态
 ```
 
-模型只能选择候选证据中存在的 URL。返回值必须符合严格的日报数据结构：包含 1 到 8 条内容、2 到 3 条趋势、满足字段长度限制，并且不超过 `MAX_ITEMS`。这些限制可以减少虚构内容，但不能证明生成文字一定正确。修改模型或信息源后，应人工检查预演。
+模型只能选择候选证据中存在的候选 ID；标题、来源和 URL 一律由本地候选重新绑定。返回值必须符合严格的日报数据结构：包含 1 到 8 条内容、2 到 3 条趋势、满足字段长度限制，并且不超过 `MAX_ITEMS`。未知或重复候选 ID、非法结构和业务约束违规都会显式失败，不能进入发送接缝。这些限制可以减少虚构内容，但不能证明生成文字一定正确。修改模型或信息源后，应人工检查预演。
 
 钉钉文本字段会进行空白规范化和 Markdown 标点转义，链接目标会做百分号编码。单条消息最多 18,000 个字符，并且只在完整条目之间拆分。当前仅支持未加签的钉钉自定义机器人，不支持要求签名的机器人。
 

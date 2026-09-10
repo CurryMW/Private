@@ -17,6 +17,18 @@ from pydantic import (
 )
 
 
+PRODUCTION_MODEL = "gpt-5.6-luna"
+DEFAULT_AI_BASE_URL = "https://api.teamorouter.com/v1"
+
+
+def validate_ai_base_url(value: str) -> str:
+    base_url = value.strip().rstrip("/")
+    parsed = urlsplit(base_url)
+    if parsed.scheme.lower() != "https" or not parsed.netloc:
+        raise ValueError("AI_BASE_URL must be an HTTPS URL")
+    return base_url
+
+
 class RssSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -124,8 +136,8 @@ def load_source_config(path: Path) -> SourceConfig:
 
 class Settings(BaseModel):
     ai_api_key: SecretStr
-    ai_base_url: str = "https://apiclaude.cc/v1"
-    ai_model: str = "claude-sonnet-4-6"
+    ai_model: str
+    ai_base_url: str = DEFAULT_AI_BASE_URL
     baidu_search_api_key: SecretStr | None = None
     dingtalk_webhook: SecretStr
     dingtalk_access_token: SecretStr | None = None
@@ -147,6 +159,21 @@ class Settings(BaseModel):
         if not value.get_secret_value().strip():
             raise ValueError("credential must not be empty")
         return value
+
+    @field_validator("ai_model")
+    @classmethod
+    def validate_single_model(cls, value: str) -> str:
+        model = value.strip()
+        if not model:
+            raise ValueError("AI_MODEL must not be empty")
+        if model != PRODUCTION_MODEL:
+            raise ValueError(f"AI_MODEL must be {PRODUCTION_MODEL}")
+        return model
+
+    @field_validator("ai_base_url")
+    @classmethod
+    def validate_model_base_url(cls, value: str) -> str:
+        return validate_ai_base_url(value)
 
     @model_validator(mode="after")
     def validate_dingtalk_webhook(self) -> "Settings":
@@ -195,15 +222,15 @@ def _parse_bool(value: str | None) -> bool:
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     if env is None:
-        load_dotenv()
+        load_dotenv(dotenv_path=Path.cwd() / ".env")
         source: Mapping[str, str] = os.environ
     else:
         source = env
 
     return Settings(
         ai_api_key=_required(source, "AI_API_KEY"),
-        ai_base_url=source.get("AI_BASE_URL", "https://apiclaude.cc/v1"),
-        ai_model=source.get("AI_MODEL", "claude-sonnet-4-6"),
+        ai_model=_required(source, "AI_MODEL"),
+        ai_base_url=source.get("AI_BASE_URL", DEFAULT_AI_BASE_URL),
         baidu_search_api_key=_optional(source, "BAIDU_SEARCH_API_KEY"),
         dingtalk_webhook=_required(source, "DINGTALK_WEBHOOK"),
         dingtalk_access_token=_optional(source, "DINGTALK_ACCESS_TOKEN"),
