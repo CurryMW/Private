@@ -1,14 +1,16 @@
 import asyncio
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from itertools import combinations
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from zoneinfo import ZoneInfo
 
 import httpx
 
 from ai_daily.config import Settings
-from ai_daily.models import Digest, DigestItem
+from ai_daily.filtering import canonicalize_url
+from ai_daily.models import Candidate, Digest, DigestItem
 
 
 MAX_MARKDOWN_CHARS = 18_000
@@ -52,18 +54,33 @@ def _markdown_url(value: object) -> str:
     return quote(str(value), safe=":/?&=#%+,-._~")
 
 
-def _item_block(number: int, item: DigestItem) -> str:
+def _item_block(
+    number: int,
+    item: DigestItem,
+    evidence: Candidate | None = None,
+    *,
+    evidence_timezone: ZoneInfo,
+) -> str:
+    title = item.title if evidence is None else evidence.title
+    source = item.source if evidence is None else evidence.source
+    url = item.url if evidence is None else evidence.url
+    metadata = [
+        f"> 【类别】{_markdown_text(item.category)}  ",
+        f"> 【来源】{_markdown_text(source)}",
+    ]
+    if evidence is not None:
+        published_at = evidence.published_at.astimezone(evidence_timezone)
+        metadata.append(f"> 【时间】{published_at:%Y-%m-%d %H:%M}")
     return "\n".join(
         [
-            f"### {number}. {_markdown_text(item.title)}",
-            f"> 【类别】{_markdown_text(item.category)}  ",
-            f"> 【来源】{_markdown_text(item.source)}",
+            f"### {number}. {_markdown_text(title)}",
+            *metadata,
             "",
             f"**发生了什么：** {_markdown_text(item.summary)}",
             "",
             f"**为什么重要：** {_markdown_text(item.impact)}",
             "",
-            f"[查看原文]({_markdown_url(item.url)})",
+            f"[查看原文]({_markdown_url(url)})",
         ]
     )
 
@@ -121,11 +138,26 @@ def render_digest(
     report_title: str = "AI 技术日报",
     intro: str | None = None,
     scope_text: str | None = None,
+    evidence_candidates: Sequence[Candidate] | None = None,
+    evidence_timezone: str = "UTC",
 ) -> list[str]:
     if max_chars <= 0:
         raise ValueError("max_chars must be positive")
     limit = min(max_chars, MAX_MARKDOWN_CHARS)
-    blocks = [_item_block(number, item) for number, item in enumerate(digest.items, 1)]
+    timezone = ZoneInfo(evidence_timezone)
+    evidence_by_url: Mapping[str, Candidate] = {
+        canonicalize_url(str(candidate.url)): candidate
+        for candidate in evidence_candidates or ()
+    }
+    blocks = [
+        _item_block(
+            number,
+            item,
+            evidence_by_url.get(canonicalize_url(str(item.url))),
+            evidence_timezone=timezone,
+        )
+        for number, item in enumerate(digest.items, 1)
+    ]
     if any(len(block) > limit for block in blocks):
         raise ValueError("one complete item block exceeds max_chars")
 

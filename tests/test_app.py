@@ -6,6 +6,7 @@ import pytest
 
 from ai_daily import app, cli
 from ai_daily.analyzer import AnalysisError
+from ai_daily.baidu_search import BaiduSearchError
 from ai_daily.config import Settings, SourceConfig
 from ai_daily.delivery_state import DeliveryState
 from ai_daily.dingtalk import DingTalkError
@@ -750,6 +751,10 @@ def test_cli_returns_zero_and_prints_only_final_counts(
     [
         (ValueError("secret-value"), "configuration is invalid"),
         (AnalysisError("analysis validation failed"), "analysis validation failed"),
+        (
+            BaiduSearchError("BAIDU_SEARCH_API_KEY is required"),
+            "BAIDU_SEARCH_API_KEY is required",
+        ),
         (DingTalkError("DingTalk delivery failed"), "DingTalk delivery failed"),
     ],
 )

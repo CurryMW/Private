@@ -38,6 +38,20 @@ class HuggingFaceConfig(BaseModel):
     limit_per_day: int = Field(gt=0)
 
 
+class BaiduSearchConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=72)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("search query must not be blank")
+        return normalized
+
+
 Repository = Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
 
 
@@ -48,6 +62,7 @@ class SourceConfig(BaseModel):
     arxiv: ArxivConfig | None = None
     huggingface_daily_papers: HuggingFaceConfig | None = None
     github_repositories: list[Repository] = Field(default_factory=list)
+    baidu_search: BaiduSearchConfig | None = None
 
     @model_validator(mode="after")
     def require_configured_source(self) -> "SourceConfig":
@@ -60,6 +75,7 @@ class SourceConfig(BaseModel):
             or self.arxiv is not None
             or huggingface_enabled
             or self.github_repositories
+            or self.baidu_search is not None
         ):
             raise ValueError("at least one source must be configured")
         return self
@@ -75,6 +91,7 @@ class Settings(BaseModel):
     ai_api_key: SecretStr
     ai_base_url: str = "https://apiclaude.cc/v1"
     ai_model: str = "claude-sonnet-4-6"
+    baidu_search_api_key: SecretStr | None = None
     dingtalk_webhook: SecretStr
     dingtalk_access_token: SecretStr | None = None
     window_hours: int = Field(default=36, gt=0)
@@ -152,6 +169,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         ai_api_key=_required(source, "AI_API_KEY"),
         ai_base_url=source.get("AI_BASE_URL", "https://apiclaude.cc/v1"),
         ai_model=source.get("AI_MODEL", "claude-sonnet-4-6"),
+        baidu_search_api_key=_optional(source, "BAIDU_SEARCH_API_KEY"),
         dingtalk_webhook=_required(source, "DINGTALK_WEBHOOK"),
         dingtalk_access_token=_optional(source, "DINGTALK_ACCESS_TOKEN"),
         window_hours=source.get("WINDOW_HOURS", "36"),

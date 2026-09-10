@@ -1,12 +1,13 @@
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
 
 from ai_daily.analyzer import AnalysisError, Analyzer
+from ai_daily.baidu_search import BaiduSearchClient, BaiduSearchError
 from ai_daily.application import (
     DeliveryStateFileStore,
     HTTPClientFactory,
@@ -15,7 +16,7 @@ from ai_daily.application import (
     SentStateFileStore,
     StateStore,
 )
-from ai_daily.config import Settings, SourceConfig
+from ai_daily.config import BaiduSearchConfig, Settings, SourceConfig
 from ai_daily.delivery_state import DeliveryState
 from ai_daily.dingtalk import (
     DingTalkSender,
@@ -110,6 +111,11 @@ class AIDigestApplication:
             raise ValueError("now must be timezone-aware")
         run_at = run_at.astimezone(UTC)
         report_date = run_at.astimezone(ZoneInfo(settings.timezone)).date()
+        if source_config.baidu_search is not None:
+            return await self._run_baidu_preview(
+                report_date, source_config.baidu_search
+            )
+
         delivery_state = DeliveryState()
         if settings.enforce_daily_once:
             delivery_state = runtime.delivery_state_store.load()
@@ -215,15 +221,10 @@ class AIDigestApplication:
             logger.info("parts=%d", len(parts))
 
             if settings.dry_run:
-                for index, part in enumerate(parts, 1):
-                    print(f"--- preview {index}/{len(parts)} ---")
-                    print(part)
-                logger.info("status=dry-run")
-                return RunResult(
-                    status=RunStatus.PREVIEW,
+                return self._preview_result(
+                    parts,
                     candidate_count=len(batch.candidates),
                     selected_count=selected_count,
-                    part_count=len(parts),
                 )
 
             title = f"{report_title}｜{report_date.isoformat()}"
@@ -239,6 +240,69 @@ class AIDigestApplication:
         return RunResult(
             status=RunStatus.SENT,
             candidate_count=len(batch.candidates),
+            selected_count=selected_count,
+            part_count=len(parts),
+        )
+
+    async def _run_baidu_preview(
+        self,
+        report_date: date,
+        search_config: BaiduSearchConfig,
+    ) -> RunResult:
+        settings = self._settings
+        if not settings.dry_run:
+            raise BaiduSearchError("Baidu search tracer requires dry-run mode")
+        search_key = settings.baidu_search_api_key
+        if search_key is None or not search_key.get_secret_value().strip():
+            raise BaiduSearchError("BAIDU_SEARCH_API_KEY is required")
+
+        async with self._runtime.http_client_factory() as client:
+            search = BaiduSearchClient(
+                client,
+                search_key.get_secret_value(),
+                timezone=settings.timezone,
+            )
+            leads = await search.search(search_config.query)
+            candidates = [lead.as_candidate() for lead in leads]
+            logger.info("collected=%d", len(candidates))
+            if not candidates:
+                logger.info("status=empty")
+                return RunResult(
+                    status=RunStatus.EMPTY,
+                    candidate_count=0,
+                    selected_count=0,
+                    part_count=0,
+                )
+
+            digest = await Analyzer(client, settings).analyze(candidates)
+            parts = render_digest(
+                digest,
+                report_date,
+                settings.window_hours,
+                report_title="AI 情报摘要",
+                evidence_candidates=candidates,
+                evidence_timezone=settings.timezone,
+            )
+            return self._preview_result(
+                parts,
+                candidate_count=len(candidates),
+                selected_count=len(digest.items),
+            )
+
+    @staticmethod
+    def _preview_result(
+        parts: list[str],
+        *,
+        candidate_count: int,
+        selected_count: int,
+    ) -> RunResult:
+        for index, part in enumerate(parts, 1):
+            print(f"--- preview {index}/{len(parts)} ---")
+            print(part)
+        logger.info("status=dry-run")
+        return RunResult(
+            status=RunStatus.PREVIEW,
+            candidate_count=candidate_count,
             selected_count=selected_count,
             part_count=len(parts),
         )

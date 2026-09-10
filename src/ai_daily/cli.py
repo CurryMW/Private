@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from ai_daily.analyzer import AnalysisError
 from ai_daily.app import RunResult, run_digest
+from ai_daily.baidu_search import BaiduSearchError
 from ai_daily.config import load_settings, load_source_config
 from ai_daily.dingtalk import DingTalkError
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_error_message(error: Exception) -> str:
-    if isinstance(error, (AnalysisError, DingTalkError)):
+    if isinstance(error, (AnalysisError, BaiduSearchError, DingTalkError)):
         return str(error)
     if isinstance(error, ValueError):
         return "configuration is invalid"
