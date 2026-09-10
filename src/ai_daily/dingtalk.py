@@ -71,6 +71,16 @@ def _item_block(
     if evidence is not None:
         published_at = evidence.published_at.astimezone(evidence_timezone)
         metadata.append(f"> 【时间】{published_at:%Y-%m-%d %H:%M}")
+        if evidence.verification_status is not None:
+            metadata.append(
+                f"> 【验证】{_markdown_text(evidence.verification_status)}"
+            )
+        if len(evidence.evidence) > 1:
+            evidence_links = "；".join(
+                f"[{_markdown_text(source.source)}]({_markdown_url(source.url)})"
+                for source in evidence.evidence
+            )
+            metadata.append(f"> 【证据】{evidence_links}")
     return "\n".join(
         [
             f"### {number}. {_markdown_text(title)}",

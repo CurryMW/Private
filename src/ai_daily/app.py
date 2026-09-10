@@ -24,6 +24,7 @@ from ai_daily.dingtalk import (
     render_model_service_notice,
     render_status_notice,
 )
+from ai_daily.evidence import prepare_search_candidates
 from ai_daily.selection import select_candidate_batch
 from ai_daily.sources import collect_candidates
 from ai_daily.state import SentState
@@ -113,7 +114,7 @@ class AIDigestApplication:
         report_date = run_at.astimezone(ZoneInfo(settings.timezone)).date()
         if source_config.baidu_search is not None:
             return await self._run_baidu_preview(
-                report_date, source_config.baidu_search
+                run_at, report_date, source_config.baidu_search
             )
 
         delivery_state = DeliveryState()
@@ -246,6 +247,7 @@ class AIDigestApplication:
 
     async def _run_baidu_preview(
         self,
+        run_at: datetime,
         report_date: date,
         search_config: BaiduSearchConfig,
     ) -> RunResult:
@@ -262,8 +264,16 @@ class AIDigestApplication:
                 search_key.get_secret_value(),
                 timezone=settings.timezone,
             )
-            leads = await search.search(search_config.query)
-            candidates = [lead.as_candidate() for lead in leads]
+            leads = []
+            for query in search_config.queries_for(report_date.toordinal()):
+                leads.extend(await search.search(query))
+            candidates = prepare_search_candidates(
+                leads,
+                now=run_at,
+                window_hours=settings.window_hours,
+                sent_state=self._runtime.sent_state_store.load(),
+                search_config=search_config,
+            )
             logger.info("collected=%d", len(candidates))
             if not candidates:
                 logger.info("status=empty")
@@ -280,6 +290,10 @@ class AIDigestApplication:
                 report_date,
                 settings.window_hours,
                 report_title="AI 情报摘要",
+                scope_text=(
+                    "覆盖范围：百度可检索到的中英文 AI 公开信息"
+                    f"（最近 {settings.window_hours} 小时）"
+                ),
                 evidence_candidates=candidates,
                 evidence_timezone=settings.timezone,
             )

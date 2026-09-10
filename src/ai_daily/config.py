@@ -41,15 +41,50 @@ class HuggingFaceConfig(BaseModel):
 class BaiduSearchConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    query: str = Field(min_length=1, max_length=72)
+    fixed_queries: list[str] = Field(default_factory=list)
+    rotating_queries: list[str] = Field(default_factory=list)
+    first_party_domains: list[str] = Field(default_factory=list)
+    trusted_domains: list[str] = Field(default_factory=list)
 
-    @field_validator("query")
+    @field_validator("fixed_queries", "rotating_queries")
     @classmethod
-    def normalize_query(cls, value: str) -> str:
-        normalized = " ".join(value.split())
-        if not normalized:
-            raise ValueError("search query must not be blank")
+    def normalize_queries(cls, values: list[str]) -> list[str]:
+        normalized = [" ".join(value.split()) for value in values]
+        if any(not value or len(value) > 72 for value in normalized):
+            raise ValueError("search queries must contain 1 to 72 characters")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("search queries must be unique within each group")
         return normalized
+
+    @field_validator("first_party_domains", "trusted_domains")
+    @classmethod
+    def normalize_domains(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold().rstrip(".") for value in values]
+        if any(
+            not value
+            or "/" in value
+            or ":" in value
+            or value.startswith(".")
+            for value in normalized
+        ):
+            raise ValueError("evidence domains must be host names")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_query_plan(self) -> "BaiduSearchConfig":
+        if len(self.fixed_queries) != 16:
+            raise ValueError("a complete search plan requires 16 fixed queries")
+        if len(self.rotating_queries) < 4:
+            raise ValueError("a complete search plan requires at least 4 rotating queries")
+        return self
+
+    def queries_for(self, ordinal: int) -> list[str]:
+        start = (ordinal * 4) % len(self.rotating_queries)
+        rotating = [
+            self.rotating_queries[(start + offset) % len(self.rotating_queries)]
+            for offset in range(4)
+        ]
+        return [*self.fixed_queries, *rotating]
 
 
 Repository = Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]

@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class Category(StrEnum):
@@ -9,6 +9,19 @@ class Category(StrEnum):
     RESEARCH = "研究突破"
     OPEN_SOURCE = "开源工具"
     PARADIGM = "AI 范式"
+
+
+class VerificationStatus(StrEnum):
+    CONFIRMED = "已确认更新"
+    UNVERIFIED = "未经第一方确认"
+
+
+class EvidenceSource(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    source: str = Field(min_length=2, max_length=100)
+    url: HttpUrl
+    excerpt: str = Field(min_length=3, max_length=6000)
 
 
 class Candidate(BaseModel):
@@ -23,6 +36,34 @@ class Candidate(BaseModel):
     source_kind: str = Field(min_length=2, max_length=30)
     relevance_score: float | None = Field(default=None, ge=0, le=1)
     authority_score: float | None = Field(default=None, ge=0, le=1)
+    event_id: str | None = Field(default=None, min_length=12, max_length=64)
+    organization_id: str | None = Field(default=None, min_length=1, max_length=253)
+    verification_status: VerificationStatus | None = None
+    evidence: tuple[EvidenceSource, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_evidence_assessment(self) -> "Candidate":
+        if self.verification_status is None:
+            if (
+                self.event_id is not None
+                or self.organization_id is not None
+                or self.evidence
+            ):
+                raise ValueError("ungraded candidate cannot contain evidence assessment")
+            return self
+        if self.event_id is None or not self.evidence:
+            raise ValueError("graded candidate requires an event and evidence")
+        if (
+            self.verification_status is VerificationStatus.CONFIRMED
+            and self.organization_id is None
+        ):
+            raise ValueError("confirmed candidate requires an organization")
+        if (
+            self.verification_status is VerificationStatus.UNVERIFIED
+            and len(self.evidence) < 2
+        ):
+            raise ValueError("unverified candidate requires two evidence sources")
+        return self
 
 
 class SearchLead(BaseModel):
