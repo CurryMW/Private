@@ -1,6 +1,6 @@
-# AI 情报摘要与 GitHub 趋势快照
+# AI 情报摘要与 GitHub 趋势报告
 
-本项目包含两个相互独立的流程：`AI 情报摘要`只通过百度官方搜索 API 发现候选，再由 TeamoRouter `gpt-5.6-luna` 生成最多 8 条中文摘要；`GitHub 趋势快照`使用 GitHub 官方 API 维护独立的仓库基线。AI 情报工作流设计为每天北京时间 08:30 运行；当前改动只在本地准备，未部署或远程启用定时任务。
+本项目包含两个相互独立的流程：`AI 情报摘要`只通过百度官方搜索 API 发现候选，再由 TeamoRouter `gpt-5.6-luna` 生成最多 8 条中文摘要；`GitHub 趋势报告`使用 GitHub 官方 API 维护独立基线，观察周期满 72 小时后生成最多 5 个项目的报告。AI 情报工作流设计为每天北京时间 08:30 运行；当前改动只在本地准备，未部署或远程启用定时任务。信息范围限于百度可检索的公开内容，不代表全球或社交平台完整覆盖。
 
 日报重点关注模型发布、学术研究、开源工具、AI 工程实践和研发范式。融资、估值、股票、财报、人事、营销等缺少技术信息的内容会被过滤。每条消息都会保留原始来源链接，并把事实摘要和影响分析分开呈现。
 
@@ -97,7 +97,7 @@ try {
 status=dry-run candidates=12 selected=6 parts=1
 ```
 
-数量会随百度可检索到的公开信息变化。正常进度日志包括 `collected=N` 和 `status=dry-run`，最终摘要显示候选数、入选数和消息分片数。预演可调用搜索和模型，但不构造钉钉发送器，不修改成功状态，也不应出现 API Key、完整 Webhook 或 `access_token`。
+数量会随百度可检索到的公开信息变化。正常进度日志包括 `collected=N` 和 `status=dry-run`，最终摘要显示候选数、入选数和消息分片数。预演可调用搜索和模型，但不构造钉钉发送器，不修改日报成功状态；它会更新独立百度每日用量记录，也不应出现 API Key、完整 Webhook 或 `access_token`。
 
 ### 完成结果
 
@@ -293,7 +293,19 @@ GitHub Actions 的定时任务在平台负载较高时可能延迟，具体可�
 
 定时和手工正式运行共用 `.state/sent.json` 中的 30 天 URL 去重历史，避免人工验收后又重复发送。定时运行的当日成功日期保存在 `.state/deliveries.json`。URL 历史只保存规范化 URL 的 SHA-256 哈希、事件签名和带时区的时间戳；损坏的旧状态会使任务失败，不会被当作空历史继续发送。
 
-每次 AI 情报运行最多发起 20 次百度搜索（16 个固定中英文主题加 4 个轮换热点），只处理最近 36 小时的候选。没有合格内容时任务成功结束但钉钉保持静默，不写成功状态；搜索、模型或钉钉失败时任务非零退出，不发送错误、降级或运行状态通知。百度限额或免费额度耗尽也按搜索失败处理，不自动改用后付费或其他搜索来源。
+每次 AI 情报运行最多发起 20 次百度搜索（16 个固定中英文主题加 4 个轮换热点），只处理最近 36 小时的候选。没有合格内容时任务成功结束但钉钉保持静默，不写成功状态；搜索、模型或钉钉失败时任务非零退出，不发送错误、降级或运行状态通知。百度限额或免费额度耗尽也按搜索失败处理，不自动改用后付费或其他搜索来源。独立用量账本还会跨运行执行每日 20 次累计上限。
+
+每次运行最多发起 20 次百度搜索，同时通过独立的 `.state/baidu-search-usage.json` 按北京时间日期累计限制为每天 20 次。每次请求在发出前预留并保存额度，因此空结果、dry-run、失败请求和成功请求都会计入；达到上限后不再调用百度。该账本不属于日报成功状态，Actions 必须缓存并恢复 `.state`。还需在百度服务商后台确认免费额度和计费限制；客户端不主动开通后付费，并不等于服务商保证免费。
+
+### GitHub 趋势预演
+
+使用 Python 3.12，在 `.env` 中配置模型参数及可选的 `GITHUB_TOKEN`，然后执行：
+
+```sh
+DRY_RUN=true python -m ai_daily.github_trends_cli
+```
+
+`GITHUB_TRENDS_STATE_PATH` 默认是 `.state/github-trends/baseline.json`，与 AI 摘要状态隔离。首次运行或基线丢失时只建立基线；dry-run 不保存这份基线，也不发送消息。真实趋势需要正式保存基线并经过至少 72 小时，不能用首次预演证明增量报告已经验收。失败后重试按实际观察时长展示增量，不把超过 72 小时的累计增长标成恰好 72 小时。未配置 `GITHUB_TOKEN` 时可能触发匿名请求限额；Actions 使用自己的 `github.token`。
 
 GitHub 缓存只是优化手段，不是永久存储。缓存被清理、过期或恢复失败时，旧内容可能再次入选。可以进入 **Actions** > **Management** > **Caches** 查看缓存，参考 GitHub 的[缓存管理说明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manage-caches)，或者执行：
 
@@ -405,7 +417,7 @@ AI 情报每天执行 16 个固定查询和 4 个轮换查询，只调用百度�
 | --- | --- | --- | --- |
 | [`.github/workflows/test.yml`](.github/workflows/test.yml) | `Test` | Push、Pull Request | 安装 Python 3.12 依赖并运行离线测试。 |
 | [`.github/workflows/daily.yml`](.github/workflows/daily.yml) | `AI 情报摘要` | 08:30 cron、手动触发 | 调用百度搜索与唯一模型，预演不发送或写状态。 |
-| [`.github/workflows/github-trends.yml`](.github/workflows/github-trends.yml) | `GitHub AI 趋势快照` | 08:45 cron、手动触发 | 使用 GitHub 官方 API 维护独立趋势基线。 |
+| [`.github/workflows/github-trends.yml`](.github/workflows/github-trends.yml) | `GitHub AI 趋势报告` | 08:45 cron、手动触发 | 每日更新独立基线，满 72 小时后生成报告；首次只建基线。 |
 
 工作流的仓库内容权限都是只读，并且第三方 Action 都固定到完整的提交 SHA。AI 情报工作流的手动输入参数为布尔值 `dry_run`，默认值是 `true`。
 
@@ -462,8 +474,7 @@ sources.yaml + 独立搜索/模型凭据
 python -m pytest -q
 $secretPatterns = 'sk-' + '[A-Za-z0-9]{12,}|access_' + 'token=[A-Za-z0-9_-]{12,}|AI_API_' + 'KEY=.+'
 $knownSyntheticPatterns = @(
-    ('^tests/test_dingtalk\.py:\d+:\s+dingtalk_access_' + 'token=access_token,$'),
-    ('^tests/test_sources\.py:\d+:\s+raise RuntimeError\("https://private\.example/feed\?access_' + 'token=secret-value"\)$')
+    ('^tests/test_dingtalk\.py:\d+:\s+dingtalk_access_' + 'token=access_token,$')
 )
 $secretFindings = git grep -n -E $secretPatterns -- ':!docs/superpowers/**' ':!.env.example' |
     Where-Object {

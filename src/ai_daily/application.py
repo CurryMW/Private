@@ -9,6 +9,7 @@ from typing import Generic, Protocol, TypeVar
 import httpx
 
 from ai_daily.delivery_state import DeliveryState
+from ai_daily.baidu_usage import BaiduSearchUsage
 from ai_daily.state import SentState
 
 

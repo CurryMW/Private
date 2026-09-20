@@ -9,6 +9,7 @@ from pydantic import SecretStr
 from ai_daily.app import AIDigestApplication, AIDigestRuntime
 from ai_daily.application import RunStatus, SentStateFileStore
 from ai_daily.baidu_search import BaiduSearchClient, BaiduSearchError
+from ai_daily.baidu_usage import BaiduSearchUsage
 from ai_daily.config import BaiduSearchConfig, Settings, SourceConfig
 from ai_daily.delivery_state import DeliveryState
 from ai_daily.filtering import candidate_id
@@ -155,6 +156,38 @@ async def test_ai_digest_entry_executes_sixteen_fixed_and_four_rotating_queries(
         *(f"固定 AI 主题 {index}" for index in range(16)),
         *(f"轮换 AI 热点 {index}" for index in range(4)),
     ]
+
+
+@pytest.mark.asyncio
+async def test_ai_digest_entry_enforces_daily_search_quota_across_runs(tmp_path) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"references": []})
+
+    usage_store = MemoryStore(BaiduSearchUsage(report_date=NOW.date(), requests=19))
+    application = AIDigestApplication(
+        baidu_settings(tmp_path),
+        SourceConfig(baidu_search=complete_search_config()),
+        runtime=AIDigestRuntime(
+            clock=lambda: NOW,
+            http_client_factory=client_factory(handler),
+            sent_state_store=MemoryStore(SentState()),
+            delivery_state_store=MemoryStore(DeliveryState()),
+            sender_factory=lambda client, settings: (_ for _ in ()).throw(
+                AssertionError("quota test must not construct DingTalk sender")
+            ),
+            baidu_usage_store=usage_store,
+        ),
+    )
+
+    result = await application.run()
+
+    assert result.status is RunStatus.FAILED
+    assert result.failure_type == "ValueError"
+    assert len(requests) == 1
+    assert usage_store.value.requests == 20
 
 
 @pytest.mark.asyncio

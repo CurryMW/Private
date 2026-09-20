@@ -1,7 +1,6 @@
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated
 from urllib.parse import parse_qs, urlsplit
 
 import yaml
@@ -10,7 +9,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    HttpUrl,
     SecretStr,
     field_validator,
     model_validator,
@@ -27,27 +25,6 @@ def validate_ai_base_url(value: str) -> str:
     if parsed.scheme.lower() != "https" or not parsed.netloc:
         raise ValueError("AI_BASE_URL must be an HTTPS URL")
     return base_url
-
-
-class RssSource(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1)
-    url: HttpUrl
-
-
-class ArxivConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    categories: list[str] = Field(min_length=1)
-    max_results: int = Field(gt=0)
-
-
-class HuggingFaceConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool
-    limit_per_day: int = Field(gt=0)
 
 
 class BaiduSearchConfig(BaseModel):
@@ -99,33 +76,10 @@ class BaiduSearchConfig(BaseModel):
         return [*self.fixed_queries, *rotating]
 
 
-Repository = Annotated[str, Field(pattern=r"^[^/\s]+/[^/\s]+$")]
-
-
 class SourceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    rss: list[RssSource] = Field(default_factory=list)
-    arxiv: ArxivConfig | None = None
-    huggingface_daily_papers: HuggingFaceConfig | None = None
-    github_repositories: list[Repository] = Field(default_factory=list)
-    baidu_search: BaiduSearchConfig | None = None
-
-    @model_validator(mode="after")
-    def require_configured_source(self) -> "SourceConfig":
-        huggingface_enabled = (
-            self.huggingface_daily_papers is not None
-            and self.huggingface_daily_papers.enabled
-        )
-        if not (
-            self.rss
-            or self.arxiv is not None
-            or huggingface_enabled
-            or self.github_repositories
-            or self.baidu_search is not None
-        ):
-            raise ValueError("at least one source must be configured")
-        return self
+    baidu_search: BaiduSearchConfig
 
 
 def load_source_config(path: Path) -> SourceConfig:
@@ -142,16 +96,13 @@ class Settings(BaseModel):
     dingtalk_webhook: SecretStr
     dingtalk_access_token: SecretStr | None = None
     window_hours: int = Field(default=36, gt=0)
-    fallback_window_hours: int = Field(default=168, gt=0)
-    model_candidate_limit: int = Field(default=12, gt=0)
-    model_retry_candidate_limit: int = Field(default=6, gt=0)
     max_items: int = Field(default=8, gt=0, le=8)
     timezone: str = "Asia/Shanghai"
     dry_run: bool = False
     state_path: Path = Path(".state/sent.json")
     delivery_state_path: Path = Path(".state/deliveries.json")
+    baidu_usage_state_path: Path = Path(".state/baidu-search-usage.json")
     enforce_daily_once: bool = False
-    github_token: SecretStr | None = None
 
     @field_validator("ai_api_key", "dingtalk_webhook")
     @classmethod
@@ -189,18 +140,6 @@ class Settings(BaseModel):
             raise ValueError("DINGTALK_ACCESS_TOKEN is required for a base webhook")
         return self
 
-    @model_validator(mode="after")
-    def validate_content_windows(self) -> "Settings":
-        if self.fallback_window_hours < self.window_hours:
-            raise ValueError("fallback window must cover primary window")
-        if self.model_candidate_limit < self.max_items:
-            raise ValueError("model candidate limit must cover max items")
-        if self.model_retry_candidate_limit >= self.model_candidate_limit:
-            raise ValueError(
-                "model retry candidate limit must be smaller than initial limit"
-            )
-        return self
-
 
 def _required(env: Mapping[str, str], name: str) -> str:
     value = env.get(name)
@@ -235,11 +174,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         dingtalk_webhook=_required(source, "DINGTALK_WEBHOOK"),
         dingtalk_access_token=_optional(source, "DINGTALK_ACCESS_TOKEN"),
         window_hours=source.get("WINDOW_HOURS", "36"),
-        fallback_window_hours=source.get("FALLBACK_WINDOW_HOURS", "168"),
-        model_candidate_limit=source.get("MODEL_CANDIDATE_LIMIT", "12"),
-        model_retry_candidate_limit=source.get(
-            "MODEL_RETRY_CANDIDATE_LIMIT", "6"
-        ),
         max_items=source.get("MAX_ITEMS", "8"),
         timezone=source.get("TIMEZONE", "Asia/Shanghai"),
         dry_run=_parse_bool(source.get("DRY_RUN")),
@@ -247,6 +181,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         delivery_state_path=source.get(
             "DELIVERY_STATE_PATH", ".state/deliveries.json"
         ),
+        baidu_usage_state_path=source.get(
+            "BAIDU_USAGE_STATE_PATH", ".state/baidu-search-usage.json"
+        ),
         enforce_daily_once=_parse_bool(source.get("ENFORCE_DAILY_ONCE")),
-        github_token=_optional(source, "GITHUB_TOKEN"),
     )

@@ -106,15 +106,11 @@ class GitHubRepositorySearchClient:
             headers["Authorization"] = f"Bearer {self._token}"
         repositories: list[_RepositoryPayload] = []
         seen_repository_ids: set[int] = set()
-        expected_total_count: int | None = None
         target_count: int | None = None
         for page in range(1, MAXIMUM_SEARCH_PAGES + 1):
             total_count, page_repositories = await self._fetch_page(page, headers)
-            if expected_total_count is None:
-                expected_total_count = total_count
+            if target_count is None:
                 target_count = min(total_count, REPOSITORY_CANDIDATE_LIMIT)
-            elif total_count != expected_total_count:
-                raise GitHubAPIError("GitHub search response is incomplete")
 
             assert target_count is not None
             expected_page_count = min(
@@ -133,7 +129,7 @@ class GitHubRepositorySearchClient:
                     break
             if len(repositories) == target_count:
                 break
-        if target_count is None or len(repositories) != target_count:
+        if target_count is None or not repositories:
             raise GitHubAPIError("GitHub search response is incomplete")
 
         metadata_eligible = [

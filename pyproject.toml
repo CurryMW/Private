@@ -7,9 +7,7 @@ name = "dingtalk-ai-daily"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "feedparser>=6.0.12,<7",
   "httpx>=0.28.1,<1",
-  "huggingface-hub>=1.23,<2",
   "pydantic>=2.13.4,<3",
   "python-dotenv>=1.1,<2",
   "PyYAML>=6.0,<7",

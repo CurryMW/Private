@@ -96,7 +96,9 @@ def test_daily_workflow_has_schedule_and_safe_manual_default() -> None:
     assert workflow["name"] == "AI 情报摘要"
     assert triggers["schedule"] == [{"cron": "30 0 * * *"}]
     dry_run = triggers["workflow_dispatch"]["inputs"]["dry_run"]
-    assert dry_run["description"] == "只预览，不发送钉钉消息，也不保存状态"
+    assert dry_run["description"] == (
+        "只预览，不发送钉钉消息或保存日报成功状态；会保存百度每日用量账本"
+    )
     assert dry_run["type"] == "boolean"
     assert dry_run["default"] is True
 
@@ -120,7 +122,8 @@ def test_daily_job_installs_runs_and_maps_secrets_safely() -> None:
         "AI_MODEL": "gpt-5.6-luna",
         "DRY_RUN": "${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}",
         "STATE_PATH": ".state/sent.json",
-        "DELIVERY_STATE_PATH": ".state/deliveries.json",
+            "DELIVERY_STATE_PATH": ".state/deliveries.json",
+            "BAIDU_USAGE_STATE_PATH": ".state/baidu-search-usage.json",
         "ENFORCE_DAILY_ONCE": "${{ github.event_name == 'schedule' && 'true' || 'false' }}",
     }
     steps = job["steps"]
@@ -135,7 +138,7 @@ def test_daily_job_installs_runs_and_maps_secrets_safely() -> None:
     assert all("env" not in step for step in steps if step is not cli_step)
 
 
-def test_daily_state_cache_uses_unique_keys_and_only_saves_live_success() -> None:
+def test_daily_state_cache_also_saves_search_usage_after_dry_run() -> None:
     steps = _steps(_load_workflow("daily.yml"), "digest")
 
     restore = _step_using(steps, "actions/cache/restore")
@@ -154,9 +157,7 @@ def test_daily_state_cache_uses_unique_keys_and_only_saves_live_success() -> Non
 
     save = _step_using(steps, "actions/cache/save")
     _assert_action_is_pinned(save, "actions/cache/save")
-    assert save["if"] == (
-        "success() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)"
-    )
+    assert save["if"] == "always()"
     assert save["with"] == {
         "path": ".state",
         "key": (
