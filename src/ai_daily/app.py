@@ -54,6 +54,12 @@ class RunResult:
 SenderFactory = Callable[[httpx.AsyncClient, Settings], MessageSender]
 
 
+def _window_scope(window_hours: int) -> str:
+    if window_hours % 24 == 0:
+        return f"{window_hours // 24} 天"
+    return f"{window_hours} 小时"
+
+
 @dataclass(frozen=True)
 class AIDigestRuntime:
     clock: Callable[[], datetime]
@@ -164,6 +170,7 @@ class AIDigestApplication:
                 leads,
                 now=run_at,
                 window_hours=settings.window_hours,
+                event_dedupe_days=settings.event_dedupe_days,
                 sent_state=sent_state,
                 search_config=search_config,
             )
@@ -185,7 +192,7 @@ class AIDigestApplication:
                 report_title="AI 情报摘要",
                 scope_text=(
                     "覆盖范围：百度可检索到的中英文 AI 公开信息"
-                    f"（最近 {settings.window_hours} 小时）"
+                    f"（最近 {_window_scope(settings.window_hours)}）"
                 ),
                 evidence_candidates=candidates,
                 evidence_timezone=settings.timezone,
@@ -211,6 +218,7 @@ class AIDigestApplication:
                 candidate.title,
                 candidate.summary,
                 run_at,
+                event_dedupe_days=settings.event_dedupe_days,
             )
         self._runtime.sent_state_store.save(sent_state)
         if settings.enforce_daily_once:

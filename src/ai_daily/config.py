@@ -95,7 +95,8 @@ class Settings(BaseModel):
     baidu_search_api_key: SecretStr | None = None
     dingtalk_webhook: SecretStr
     dingtalk_access_token: SecretStr | None = None
-    window_hours: int = Field(default=36, gt=0)
+    window_hours: int = Field(default=168, gt=0)
+    event_dedupe_days: int = Field(default=3, gt=0)
     max_items: int = Field(default=8, gt=0, le=8)
     timezone: str = "Asia/Shanghai"
     dry_run: bool = False
@@ -173,7 +174,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         baidu_search_api_key=_optional(source, "BAIDU_SEARCH_API_KEY"),
         dingtalk_webhook=_required(source, "DINGTALK_WEBHOOK"),
         dingtalk_access_token=_optional(source, "DINGTALK_ACCESS_TOKEN"),
-        window_hours=source.get("WINDOW_HOURS", "36"),
+        window_hours=source.get("WINDOW_HOURS", "168"),
+        event_dedupe_days=source.get("EVENT_DEDUPE_DAYS", "3"),
         max_items=source.get("MAX_ITEMS", "8"),
         timezone=source.get("TIMEZONE", "Asia/Shanghai"),
         dry_run=_parse_bool(source.get("DRY_RUN")),

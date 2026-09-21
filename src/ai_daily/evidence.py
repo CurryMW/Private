@@ -191,6 +191,7 @@ def prepare_search_candidates(
     *,
     now: datetime,
     window_hours: int,
+    event_dedupe_days: int,
     sent_state: SentState,
     search_config: BaiduSearchConfig,
 ) -> list[Candidate]:
@@ -199,6 +200,7 @@ def prepare_search_candidates(
         now=now,
         window_hours=window_hours,
         sent_state=sent_state,
+        event_dedupe_days=event_dedupe_days,
     )
     site_limited = _limit_leads_by_site(
         eligible,
@@ -237,6 +239,7 @@ def _eligible_leads(
     now: datetime,
     window_hours: int,
     sent_state: SentState,
+    event_dedupe_days: int,
 ) -> list[SearchLead]:
     cutoff = now - timedelta(hours=window_hours)
     by_url: dict[str, SearchLead] = {}
@@ -247,7 +250,12 @@ def _eligible_leads(
             continue
         if not _is_ai_related(lead):
             continue
-        if sent_state.is_repeated_event(lead.title, lead.snippet, now):
+        if sent_state.is_repeated_event(
+            lead.title,
+            lead.snippet,
+            now,
+            event_dedupe_days=event_dedupe_days,
+        ):
             continue
         canonical_url = canonicalize_url(str(lead.url))
         if sent_state.was_sent_since(

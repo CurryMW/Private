@@ -86,11 +86,13 @@ class SentState:
         title: str,
         summary: str,
         reported_at: datetime,
+        *,
+        event_dedupe_days: int = 3,
     ) -> None:
         _require_aware(reported_at)
         terms, markers = _event_signature(title, summary)
         self.events.append(EventRecord(terms, markers, reported_at))
-        cutoff = reported_at - timedelta(days=7)
+        cutoff = reported_at - timedelta(days=event_dedupe_days)
         self.events = [
             event for event in self.events if event.reported_at >= cutoff
         ]
@@ -100,10 +102,12 @@ class SentState:
         title: str,
         summary: str,
         observed_at: datetime,
+        *,
+        event_dedupe_days: int = 3,
     ) -> bool:
         _require_aware(observed_at)
         terms, markers = _event_signature(title, summary)
-        cutoff = observed_at - timedelta(days=7)
+        cutoff = observed_at - timedelta(days=event_dedupe_days)
         for event in self.events:
             if not cutoff <= event.reported_at <= observed_at:
                 continue

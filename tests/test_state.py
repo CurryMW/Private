@@ -54,6 +54,21 @@ def test_mark_sent_prunes_entries_older_than_thirty_days() -> None:
     assert state.is_sent(new_url)
 
 
+def test_repeated_event_expires_after_three_days() -> None:
+    state = SentState()
+    state.record_event(
+        "研究机构发布 Alpha AI 模型",
+        "官方发布 Alpha AI 模型并说明推理能力。",
+        NOW - timedelta(days=4),
+    )
+
+    assert not state.is_repeated_event(
+        "研究机构发布 Alpha AI 模型",
+        "官方发布 Alpha AI 模型并说明推理能力。",
+        NOW,
+    )
+
+
 def test_load_missing_file_returns_empty_state(tmp_path) -> None:
     assert SentState.load(tmp_path / "missing.json").entries == {}
 

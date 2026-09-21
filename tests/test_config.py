@@ -17,7 +17,8 @@ def test_load_settings_uses_approved_defaults() -> None:
     settings = load_settings(BASE_ENV)
     assert settings.ai_base_url == "https://api.teamorouter.cn/v1"
     assert settings.ai_model == "gpt-5.6-luna"
-    assert settings.window_hours == 36
+    assert settings.window_hours == 168
+    assert settings.event_dedupe_days == 3
     assert settings.max_items == 8
     assert settings.timezone == "Asia/Shanghai"
     assert settings.dry_run is False

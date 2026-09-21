@@ -673,19 +673,19 @@ async def test_ai_digest_entry_keeps_distinct_products_from_one_organization(
 
 
 @pytest.mark.asyncio
-async def test_ai_digest_entry_suppresses_the_same_event_within_seven_days(
+async def test_ai_digest_entry_suppresses_the_same_event_within_three_days(
     tmp_path,
 ) -> None:
     sent_state = SentState()
     sent_state.record_event(
         "研究机构发布 Alpha AI 模型",
         "官方发布 Alpha AI 模型并说明推理能力。",
-        NOW - timedelta(days=6),
+        NOW - timedelta(days=2),
     )
     sent_state.record_event(
         "研究机构发布 Alpha AI 模型",
         "官方发布 Alpha AI 模型，现已新增企业推理支持。",
-        NOW - timedelta(days=5),
+        NOW - timedelta(days=2),
     )
     search_calls = 0
 
@@ -738,7 +738,7 @@ async def test_ai_digest_entry_allows_substantive_new_event_information(
     sent_state.record_event(
         title,
         "官方发布 Alpha AI 模型并说明推理能力。",
-        NOW - timedelta(days=6),
+        NOW - timedelta(days=2),
     )
     updated_url = "https://research.example/releases/alpha-enterprise"
     search_calls = 0
@@ -788,7 +788,7 @@ async def test_ai_digest_entry_allows_substantive_new_event_information(
 
 
 @pytest.mark.asyncio
-async def test_ai_digest_entry_restores_seven_day_event_history_from_state(
+async def test_ai_digest_entry_restores_three_day_event_history_from_state(
     tmp_path,
 ) -> None:
     state_path = tmp_path / "sent.json"
@@ -796,7 +796,7 @@ async def test_ai_digest_entry_restores_seven_day_event_history_from_state(
     persisted.record_event(
         "研究机构发布 Alpha AI 模型",
         "官方发布 Alpha AI 模型并说明推理能力。",
-        NOW - timedelta(days=6),
+        NOW - timedelta(days=2),
     )
     persisted.save(state_path)
     search_calls = 0
