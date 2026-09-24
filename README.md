@@ -1,6 +1,6 @@
 # AI 情报摘要与 GitHub 趋势报告
 
-本项目包含两个相互独立的流程：`AI 情报摘要`只通过百度官方搜索 API 发现候选，再由 TeamoRouter `gpt-5.6-luna` 生成最多 8 条中文摘要；`GitHub 趋势报告`使用 GitHub 官方 API 维护独立基线，观察周期满 72 小时后生成最多 5 个项目的报告。AI 情报工作流设计为每天北京时间 08:30 运行；当前改动只在本地准备，未部署或远程启用定时任务。信息范围限于百度可检索的公开内容，不代表全球或社交平台完整覆盖。
+本项目包含两个相互独立的流程：`AI 情报摘要`只通过百度官方搜索 API 发现候选，再由 TeamoRouter `gpt-5.6-luna` 生成最多 8 条中文摘要；`GitHub 趋势报告`使用 GitHub 官方 API 维护独立基线，观察周期满 72 小时后生成最多 5 个项目的报告。AI 情报工作流设计为每天北京时间 14:30 运行；信息范围限于百度可检索的公开内容，不代表全球或社交平台完整覆盖。
 
 日报重点关注模型发布、学术研究、开源工具、AI 工程实践和研发范式。融资、估值、股票、财报、人事、营销等缺少技术信息的内容会被过滤。每条消息都会保留原始来源链接，并把事实摘要和影响分析分开呈现。
 
@@ -280,7 +280,7 @@ gh run view $latestRunId --log
 
 ## 管理定时任务和状态缓存
 
-`AI 情报摘要` 工作流只使用一个 cron 表达式 `30 0 * * *`，表示每天 UTC 00:30，也就是 `Asia/Shanghai` 时区的 08:30。定时工作流只会在相关改动推送到默认分支且仓库 Actions 启用后生效；仅在本地提交该配置不等于已部署。
+`AI 情报摘要` 工作流只使用一个 cron 表达式 `30 6 * * *`，表示每天 UTC 06:30，也就是 `Asia/Shanghai` 时区的 14:30。定时工作流只会在相关改动推送到默认分支且仓库 Actions 启用后生效。
 
 GitHub Actions 的定时任务在平台负载较高时可能延迟，具体可参考 GitHub 的[定时任务延迟说明](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#scheduled-workflows-running-at-unexpected-times)。
 
@@ -417,7 +417,7 @@ AI 情报每天执行 16 个固定查询和 4 个轮换查询，只调用百度�
 | 文件 | 显示名称 | 触发方式 | 作用 |
 | --- | --- | --- | --- |
 | [`.github/workflows/test.yml`](.github/workflows/test.yml) | `Test` | Push、Pull Request | 安装 Python 3.12 依赖并运行离线测试。 |
-| [`.github/workflows/daily.yml`](.github/workflows/daily.yml) | `AI 情报摘要` | 08:30 cron、手动触发 | 调用百度搜索与唯一模型，预演不发送或写状态。 |
+| [`.github/workflows/daily.yml`](.github/workflows/daily.yml) | `AI 情报摘要` | 14:30 cron、手动触发 | 调用百度搜索与唯一模型，预演不发送或写状态。 |
 | [`.github/workflows/github-trends.yml`](.github/workflows/github-trends.yml) | `GitHub AI 趋势报告` | 08:45 cron、手动触发 | 每日更新独立基线，满 72 小时后生成报告；首次只建基线。 |
 
 工作流的仓库内容权限都是只读，并且第三方 Action 都固定到完整的提交 SHA。AI 情报工作流的手动输入参数为布尔值 `dry_run`，默认值是 `true`。
@@ -540,7 +540,7 @@ git status --short
 
 ### 定时工作流延迟或没有出现
 
-GitHub cron 不是精确调度器，平台负载较高时可能延迟。确认 Actions 已启用，`daily.yml` 位于仓库默认分支，并且唯一 cron 是 `30 0 * * *`。不要把 cron 改成本地时间，因为 GitHub cron 使用 UTC。如果定时运行没有出现，先手动触发 dry-run 并检查预览、退出状态与安全日志。
+GitHub cron 不是精确调度器，平台负载较高时可能延迟。确认 Actions 已启用，`daily.yml` 位于仓库默认分支，并且唯一 cron 是 `30 6 * * *`。不要把 cron 改成本地时间，因为 GitHub cron 使用 UTC。如果定时运行没有出现，先手动触发 dry-run 并检查预览、退出状态与安全日志。
 
 ### 状态文件损坏或旧内容重复出现
 

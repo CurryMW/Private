@@ -2,7 +2,7 @@ name: AI 情报摘要
 
 on:
   schedule:
-    - cron: "30 0 * * *"
+    - cron: "30 6 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
