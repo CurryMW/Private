@@ -238,7 +238,21 @@ def prepare_search_candidates(
         ),
         reverse=True,
     )
+    candidates = _limit_unverified_candidates(candidates)
+    logger.info("evidence model_candidates=%d", len(candidates))
     return candidates[:MODEL_CANDIDATE_LIMIT]
+
+
+def _limit_unverified_candidates(candidates: list[Candidate]) -> list[Candidate]:
+    limited: list[Candidate] = []
+    unverified_seen = False
+    for candidate in candidates:
+        if candidate.verification_status is VerificationStatus.UNVERIFIED:
+            if unverified_seen:
+                continue
+            unverified_seen = True
+        limited.append(candidate)
+    return limited
 
 
 def _eligible_leads(
