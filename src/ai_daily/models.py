@@ -60,9 +60,9 @@ class Candidate(BaseModel):
             raise ValueError("confirmed candidate requires an organization")
         if (
             self.verification_status is VerificationStatus.UNVERIFIED
-            and len(self.evidence) < 2
+            and len(self.evidence) < 1
         ):
-            raise ValueError("unverified candidate requires two evidence sources")
+            raise ValueError("unverified candidate requires an evidence source")
         return self
 
 

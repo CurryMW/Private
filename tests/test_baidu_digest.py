@@ -498,6 +498,56 @@ async def test_ai_digest_entry_grades_first_party_and_two_source_evidence(
 
 
 @pytest.mark.asyncio
+async def test_ai_digest_entry_accepts_a_single_supported_baidu_lead_as_unverified(
+    tmp_path,
+) -> None:
+    single_url = "https://news.example/ai-launch"
+    search_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal search_calls
+        if request.url.host == "qianfan.baidubce.com":
+            search_calls += 1
+            references = []
+            if search_calls == 1:
+                references = [
+                    {
+                        "type": "web",
+                        "title": "AI 实验室发布 Orion 推理模型",
+                        "url": single_url,
+                        "website": "News Example",
+                        "content": "AI 实验室正式发布 Orion 推理模型并说明推理能力。",
+                        "date": "2026-07-18 08:00:00",
+                    }
+                ]
+            return httpx.Response(200, json={"references": references})
+        if request.url.host == "model.example":
+            return model_response_for(single_url)
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    application = AIDigestApplication(
+        baidu_settings(tmp_path),
+        SourceConfig(baidu_search=complete_search_config()),
+        runtime=AIDigestRuntime(
+            clock=lambda: NOW,
+            http_client_factory=client_factory(handler),
+            sent_state_store=MemoryStore(SentState()),
+            delivery_state_store=MemoryStore(DeliveryState()),
+            sender_factory=lambda client, settings: (_ for _ in ()).throw(
+                AssertionError("dry-run constructed DingTalk sender")
+            ),
+        ),
+    )
+
+    result = await application.run()
+
+    assert result.status is RunStatus.PREVIEW
+    assert result.candidate_count == 1
+    assert result.selected_count == 1
+    assert search_calls == 20
+
+
+@pytest.mark.asyncio
 async def test_ai_digest_entry_does_not_confirm_vague_first_party_excerpt(
     tmp_path,
 ) -> None:

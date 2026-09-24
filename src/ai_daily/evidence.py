@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import re
 from collections import defaultdict
 from collections.abc import Iterable
@@ -15,6 +16,9 @@ from ai_daily.models import (
     VerificationStatus,
 )
 from ai_daily.state import SentState
+
+
+logger = logging.getLogger(__name__)
 
 
 SITE_CANDIDATE_LIMIT = 3
@@ -202,6 +206,7 @@ def prepare_search_candidates(
         sent_state=sent_state,
         event_dedupe_days=event_dedupe_days,
     )
+    logger.info("evidence eligible=%d", len(eligible))
     site_limited = _limit_leads_by_site(
         eligible,
         configured_domains=[
@@ -209,7 +214,8 @@ def prepare_search_candidates(
             *search_config.trusted_domains,
         ],
     )
-    candidates = [
+    logger.info("evidence site_limited=%d", len(site_limited))
+    graded_candidates = [
         candidate
         for event_leads in _group_events(site_limited).values()
         if (
@@ -221,6 +227,8 @@ def prepare_search_candidates(
         )
         is not None
     ]
+    logger.info("evidence graded=%d", len(graded_candidates))
+    candidates = graded_candidates
     candidates.sort(
         key=lambda candidate: (
             candidate.published_at,
@@ -356,7 +364,16 @@ def _grade_event(
         ]
         evidence_leads = _corroborating_evidence(trusted, trusted_domains)
         if not evidence_leads:
-            return None
+            if trusted:
+                return None
+            supported = [
+                lead
+                for lead in leads
+                if _excerpt_supports_title(lead.title, lead.snippet)
+            ]
+            if not supported:
+                return None
+            evidence_leads = [supported[0]]
         selected = evidence_leads[0]
         status = VerificationStatus.UNVERIFIED
         organization_id = None

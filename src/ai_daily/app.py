@@ -166,6 +166,7 @@ class AIDigestApplication:
                 if self._runtime.baidu_usage_store is not None:
                     self._runtime.baidu_usage_store.save(usage)
                 leads.extend(await search.search(query))
+            logger.info("search_leads=%d", len(leads))
             candidates = prepare_search_candidates(
                 leads,
                 now=run_at,
