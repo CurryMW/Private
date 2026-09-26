@@ -1,0 +1,110 @@
+# ═══════════════════════════════════════════════════
+# .neuralmemory/surface.nm
+# Neural Memory Knowledge Surface v1
+# Auto-generated from brain.db | Editable by human
+# ═══════════════════════════════════════════════════
+---
+brain: default
+updated: 2026-07-21T06:01:51
+neurons: 267
+synapses: 11707
+token_budget: 1200
+depth_available: [surface, detail, deep]
+---
+
+# ── GRAPH ──────────────────────────────────────────
+# Nodes = key concepts. Edges = causal/decisional links.
+# Agent: scan this section to understand the knowledge landscape.
+# Format: [id] content (type) {p:N} →edge→ [target_id_or_text]
+
+[c12] x.xxx (concept) {p:3}
+  →co_occurs→ "IDEA"
+  →co_occurs→ "Maven"
+  →co_occurs→ "Plugins"
+  →co_occurs→ "Session activity = 3. 选择 **"Run StudentMisApplication"**…"
+  →co_occurs→ "server.port"
+
+[c13] explore mode is for thinking, not implementing (concept) {p:3}
+  →co_occurs→ "TODO: NEVER write code"
+  →alias→ "explore mode is for thinking, not implementing"
+  →alias→ "explore mode is for thinking, not implementing"
+  →alias→ "explore mode is for thinking, not implementing"
+  →alias→ "explore mode is for thinking, not implementing"
+
+[c14] | `specs/<capability>/spec (concept) {p:3}
+  →co_occurs→ "TODO: NEVER write code"
+  →co_occurs→ [c13] "explore mode is for thinking, not implementing"
+
+[c15] explore mode is for thinking, not implementing (concept) {p:3}
+  →co_occurs→ "TODO: NEVER write code"
+  →co_occurs→ "Decision: made | `design"
+
+[c16] server.port (concept) {p:3}
+  →co_occurs→ "IDEA"
+  →co_occurs→ "Maven"
+  →co_occurs→ "Plugins"
+  →co_occurs→ "Session activity = 3. 选择 **"Run StudentMisApplication"**…"
+  →co_occurs→ "Lombok"
+
+[c17] TODO: NEVER write code (concept) {p:3}
+
+[c2] Obsidian (concept) {p:4}
+  →co_occurs→ "Mobile Documents"
+  →co_occurs→ "Users"
+  →co_occurs→ "Library"
+
+[c3] Users (concept) {p:4}
+  →co_occurs→ "Mobile Documents"
+  →co_occurs→ "Library"
+
+[c4] Library (concept) {p:4}
+  →co_occurs→ "Mobile Documents"
+
+[c5] Mobile Documents (concept) {p:4}
+
+[c6] users moweicuryy (concept) {p:4}
+
+[c7] iCloud (concept) {p:4}
+
+[c1] 用户的 Obsidian 知识库路径：/Users/moweicuryy/Library/Mobile… (concept) {p:6}
+  →involves→ "Mobile Documents"
+  →related_to→ "users moweicuryy"
+  →related_to→ "iCloud"
+  →stored_by→ "用户的 Obsidian 知识库路径：/Users/moweicuryy/Library/Mobile…"
+  →involves→ "Obsidian"
+
+# ── CLUSTERS ───────────────────────────────────────
+# Auto-detected topic groups from brain.db entity co-occurrence.
+# Agent: use clusters to scope recall queries.
+
+@users: [00f21244-0036-4c80-9e8d-a789d6805141, 048eba24-7654-4541-b81f-bbdaf4c56f3d, 0512c473-b516-4465-8088-903f66137b2d, 20dfc206-577d-4d4e-9aca-24ebfc38a4af, 27623f73-4a62-42f1-9c92-28dc2583d1fb] "Library, iCloud, Users"
+@session: [0815af10-8ad9-4909-8aa0-dd7dfa92b7ad, 097f1a99-d634-4446-b387-7961ed6da786, 2188794b-e20c-4c05-8bf1-4925a73553c8, 311b32ec-48f7-4fd1-9582-9279b27c465b, 3fc7b81b-9578-4925-b631-dd1f0c39f5ec] "Session activity = 3. 选择 **"Run StudentM, server.port, Plugins"
+@explore: [33532c1b-c7d2-472a-8b37-b218a69711f9, 35a3111a-07d3-4093-91b5-1da848409df5] "explore mode is for thinking, not implem"
+@preference: [19331fd4-c06b-49c8-8caf-49e89464877e, 64066ba3-9798-4fe2-9494-5ff8277ecfe4] "preference code, Preference"
+
+# ── SIGNALS ────────────────────────────────────────
+# Active alerts, unresolved items, pending decisions.
+# Agent: check this FIRST each session for urgent context.
+
+! 用户的 Obsidian 知识库路径：/Users/moweicuryy/Library/Mobile Documents/iCloud~md~obsidian
+
+# ── DEPTH MAP ──────────────────────────────────────
+# When surface isn't enough, this tells agent WHERE to dig.
+# Format: [id] → depth_hint (context)
+
+[c1] → NEEDS_DEEP (18 synapses in brain.db, recall "用户的 Obsidian 知识库路径：/Users/moweicuryy/Li…")
+[c3] → NEEDS_DETAIL (3 total synapses, recall "Users")
+[c4] → NEEDS_DETAIL (2 total synapses, recall "Library")
+[c5] → NEEDS_DEEP (1 synapses in brain.db, recall "Mobile Documents")
+[c13] → NEEDS_DEEP (92 synapses in brain.db, recall "explore mode is for thinking, not…")
+[c14] → NEEDS_DEEP (9 synapses in brain.db, recall "| `specs/<capability>/spec")
+[c15] → NEEDS_DEEP (9 synapses in brain.db, recall "explore mode is for thinking, not…")
+[c17] → NEEDS_DEEP (7 synapses in brain.db, recall "TODO: NEVER write code")
+
+# ── META ───────────────────────────────────────────
+# Stats for agent to gauge brain richness
+
+coverage: 0.11
+staleness: 0.63
+last_consolidation: 2026-07-21T06:01:51
+top_entities: [用户的, Session, TODO:, Session, Session]
