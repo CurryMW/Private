@@ -64,6 +64,10 @@ def test_cli_returns_zero_and_prints_only_final_counts(
     ("error", "safe_message"),
     [
         (ValueError("secret-value"), "configuration is invalid"),
+        (
+            ValueError("DINGTALK_WEBHOOK must be an HTTPS URL"),
+            "DINGTALK_WEBHOOK must be an HTTPS URL",
+        ),
         (AnalysisError("analysis validation failed"), "analysis validation failed"),
         (
             BaiduSearchError("BAIDU_SEARCH_API_KEY is required"),

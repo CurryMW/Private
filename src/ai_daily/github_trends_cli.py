@@ -8,6 +8,7 @@ from ai_daily.github_trends import (
     load_github_trends_settings,
     run_github_trends,
 )
+from ai_daily.cli import _safe_error_message
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,11 @@ def main() -> int:
         settings = load_github_trends_settings()
         result = asyncio.run(run_github_trends(settings))
     except Exception as error:
-        logger.error("run failed: %s", type(error).__name__)
+        logger.error(
+            "run failed: %s: %s",
+            type(error).__name__,
+            _safe_error_message(error),
+        )
         return 1
 
     print(
